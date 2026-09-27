@@ -437,28 +437,6 @@ public sealed partial class PlanningCoordinatorAgent
             Reply(state, "Your previous session has been cleared. Please describe your symptoms or what you would like help with, and I will start a fresh assessment.", "GATHERING_INFORMATION");
             return;
         }
-        // For FailedSafely-blocked patients (non-urgent), allow read-only actions (view appointments)
-        // and cancellations. Only Emergency/Urgent blocks are fully impenetrable.
-        // Read-only doctor, availability and appointment-history requests remain
-        // available during a safety block. TryReadAsync rejects all mutation verbs,
-        // so this cannot create, reschedule or cancel an appointment.
-        if (!symptoms && await TryReadAsync(patient, state, text, token)) return;
-        // Allow cancellation even when FailedSafely-blocked — the patient already has a confirmed slot
-        // and stopping that booking is safe and is never a clinical decision.
-        if (isFailedSafelyBlock && askingCancel)
-        {
-            await InvalidateAsync(state, "Superseded", token);
-            state.Awaiting = "cancellation-reason";
-            state.CancellationReason = null;
-            Reply(state, "What is your reason for cancelling? I will then show your appointments for explicit confirmation.", "GATHERING_INFORMATION");
-            return;
-        }
-        // For a FailedSafely block (technical failure), show the improved message with self-retry option.
-        if (isFailedSafelyBlock)
-        {
-            await ReplySafetyBlockedAsync(patient.PatientId, state);
-            return;
-        }
         if (state.Awaiting == "clinical-review-choice" && state.WorkflowId.HasValue)
         {
             if (Has(text, @"^(no|n|no thanks|not now|2|3|cancel|decline|monitor)[.! ]*$"))
@@ -489,7 +467,13 @@ public sealed partial class PlanningCoordinatorAgent
                     .OrderBy(d => d.FirstName)
                     .Take(5)
                     .ToListAsync();
-                var docListText = string.Join("\n", approvedDocs.Select(d => $"• Dr. {d.FirstName} {d.LastName} ({d.Specialization})"));
+                var docListText = string.Join("\n", approvedDocs.Select(d =>
+                {
+                    var name = d.FirstName.Trim().StartsWith("Dr", StringComparison.OrdinalIgnoreCase)
+                        ? $"{d.FirstName.Trim()} {d.LastName.Trim()}"
+                        : $"Dr. {d.FirstName.Trim()} {d.LastName.Trim()}";
+                    return $"• {name} ({d.Specialization})";
+                }));
                 Reply(state, $"Please reply with the name of your preferred doctor or specialty:\n\n{docListText}", "GATHERING_INFORMATION");
                 return;
             }
@@ -503,7 +487,8 @@ public sealed partial class PlanningCoordinatorAgent
                 (d.FirstName + " " + d.LastName).ToLowerInvariant().Contains(searchClean) ||
                 d.FirstName.ToLowerInvariant().Contains(searchClean) ||
                 d.LastName.ToLowerInvariant().Contains(searchClean) ||
-                (!string.IsNullOrWhiteSpace(d.Specialization) && d.Specialization.ToLowerInvariant().Contains(searchClean)));
+                (!string.IsNullOrWhiteSpace(d.Specialization) && d.Specialization.ToLowerInvariant().Contains(searchClean)) ||
+                (!string.IsNullOrWhiteSpace(d.Specialization) && searchClean.Contains(d.Specialization.ToLowerInvariant())));
 
             if (matchedDoctor != null)
             {
@@ -514,9 +499,42 @@ public sealed partial class PlanningCoordinatorAgent
                 return;
             }
 
+            // Check if patient provided a recognizable clinical specialty
+            if (searchClean.Length >= 4 && (searchClean.Contains("pediatric") || searchClean.Contains("orthopedic") || searchClean.Contains("neurolog") || searchClean.Contains("dermatolog") || searchClean.Contains("oncolog") || searchClean.Contains("gyn") || searchClean.Contains("psychiatr") || searchClean.Contains("ent") || searchClean.Contains("urolog") || searchClean.Contains("general") || searchClean.Contains("medicine") || searchClean.Contains("cardio")))
+            {
+                var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: true, targetSpecialty: query);
+                if (workflow is null) throw new InvalidOperationException("The optional clinical-review request is no longer available.");
+                ApplyWorkflow(state, workflow);
+                ClinicalReply(state, workflow);
+                return;
+            }
+
             Reply(state, "How would you like to proceed with your clinical review?\n\n" +
                 "1. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)\n" +
                 "2. ✕ Not right now (I will monitor my symptoms)", "GATHERING_INFORMATION");
+            return;
+        }
+
+        // For FailedSafely-blocked patients (non-urgent), allow read-only actions (view appointments)
+        // and cancellations. Only Emergency/Urgent blocks are fully impenetrable.
+        // Read-only doctor, availability and appointment-history requests remain
+        // available during a safety block. TryReadAsync rejects all mutation verbs,
+        // so this cannot create, reschedule or cancel an appointment.
+        if (!symptoms && await TryReadAsync(patient, state, text, token)) return;
+        // Allow cancellation even when FailedSafely-blocked — the patient already has a confirmed slot
+        // and stopping that booking is safe and is never a clinical decision.
+        if (isFailedSafelyBlock && askingCancel)
+        {
+            await InvalidateAsync(state, "Superseded", token);
+            state.Awaiting = "cancellation-reason";
+            state.CancellationReason = null;
+            Reply(state, "What is your reason for cancelling? I will then show your appointments for explicit confirmation.", "GATHERING_INFORMATION");
+            return;
+        }
+        // For a FailedSafely block (technical failure), show the improved message with self-retry option.
+        if (isFailedSafelyBlock)
+        {
+            await ReplySafetyBlockedAsync(patient.PatientId, state);
             return;
         }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue && appointmentIntent)

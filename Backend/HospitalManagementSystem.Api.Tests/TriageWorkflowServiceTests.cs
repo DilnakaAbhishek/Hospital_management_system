@@ -752,7 +752,7 @@ public class TriageWorkflowServiceTests
     }
 
     [Fact]
-    public async Task GetPendingClinicalReviewsAsync_EscalatesToOtherDoctorsAfterThreeMinutes()
+    public async Task GetPendingClinicalReviewsAsync_EscalatesToOtherDoctorsAfterFourMinutes()
     {
         await using var db = CreateDb();
         var userA = new User { UserId = 10, Role = "Doctor", Email = "docA@example.com", PasswordHash = "x" };
@@ -774,13 +774,20 @@ public class TriageWorkflowServiceTests
         Assert.Single(pendingA);
         Assert.Empty(pendingB);
 
-        // After 4 minutes of no response from Doctor A
+        // At 3 minutes of no response from Doctor A (under 4 minutes), Doctor B still does NOT see it
         var workflowEntity = await db.TriageWorkflows.SingleAsync(w => w.TriageWorkflowId == started.WorkflowId);
-        workflowEntity.CreatedAt = DateTime.UtcNow.AddMinutes(-4);
-        workflowEntity.UpdatedAt = DateTime.UtcNow.AddMinutes(-4);
+        workflowEntity.CreatedAt = DateTime.UtcNow.AddMinutes(-3);
+        workflowEntity.UpdatedAt = DateTime.UtcNow.AddMinutes(-3);
         await db.SaveChangesAsync();
 
-        // Now Doctor B also sees it in their queue because it timed out!
+        var stillPendingB = await service.GetPendingClinicalReviewsAsync(userB.UserId);
+        Assert.Empty(stillPendingB);
+
+        // After 5 minutes (exceeded 4-minute cutoff), Doctor B also sees it in their queue
+        workflowEntity.CreatedAt = DateTime.UtcNow.AddMinutes(-5);
+        workflowEntity.UpdatedAt = DateTime.UtcNow.AddMinutes(-5);
+        await db.SaveChangesAsync();
+
         var escalatedPendingB = await service.GetPendingClinicalReviewsAsync(userB.UserId);
         Assert.Single(escalatedPendingB);
         Assert.Equal(started.WorkflowId, escalatedPendingB[0].WorkflowId);

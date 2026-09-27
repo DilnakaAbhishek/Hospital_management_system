@@ -944,6 +944,27 @@ public sealed class HospitalAssistantTests
     }
 
     [Fact]
+    public async Task ClinicalReviewChoice_ReplyingWithSpecialty_AssignsReviewAndDoesNotTriggerMedicalRecordAgent()
+    {
+        await using var h = await Harness.Create();
+        var doctor = new Doctor { DoctorId = 11, UserId = 101, FirstName = "Dilnaka", LastName = "Perera", Specialization = "General Medicine", RegistrationStatus = DoctorRegistrationStatuses.Approved };
+        h.Db.Doctors.Add(doctor);
+        await h.Db.SaveChangesAsync();
+
+        var first = await h.Send("I have cancer");
+        Assert.Equal("GATHERING_INFORMATION", first.State);
+
+        // Patient types "general medicine" directly when choosing review
+        var assigned = await h.Send("general medicine", first.ConversationId);
+        Assert.Equal("WAITING_FOR_HUMAN_APPROVAL", assigned.State);
+        var message = assigned.Messages.Last().Text;
+        Assert.Contains("Dilnaka Perera", message);
+        Assert.DoesNotContain("recorded diagnosis", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("At your latest visit", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Dr. Dr.", message);
+    }
+
+    [Fact]
     public async Task EmergencyAlert_ProvidesCriticalEmergencyGuidance()
     {
         await using var h = await Harness.Create();
@@ -1202,6 +1223,27 @@ public sealed class HospitalAssistantTests
                 new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments, SmsTestSupport.Create(db), intent, model) };
         }
         public ValueTask DisposeAsync() => Db.DisposeAsync();
+    }
+
+    [Fact]
+    public void AssistantPreferences_StopWordsAreIgnoredAndSpecialtiesPrioritized()
+    {
+        IReadOnlyList<AgentDoctor> doctors = [
+            new("D1", 1, "Dr. Dilnaka Perera", "General Medicine"),
+            new("D2", 2, "Dr. Kasun Silva", "Cardiology")
+        ];
+
+        // "please suggest a doctor for me" -> candidate "for me" should be ignored (stop words)
+        var queryForMe = AssistantPreferences.Query("please suggest a doctor for me", doctors);
+        Assert.Null(queryForMe);
+
+        // "like a general doctor for that" -> resolves to "General Medicine" alias
+        var queryGeneral = AssistantPreferences.Query("like a general doctor for that", doctors);
+        Assert.Equal("General Medicine", queryGeneral);
+
+        // "like a general medicine doctor" -> resolves to "General Medicine"
+        var queryGeneralMed = AssistantPreferences.Query("like a general medicine doctor", doctors);
+        Assert.Equal("General Medicine", queryGeneralMed);
     }
 
     private sealed class FakeIntentClient : IAssessmentIntentClient

@@ -10,6 +10,12 @@ public static class AssistantPreferences
     public static bool Has(string text, string pattern) => Regex.IsMatch(text, pattern,
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
+    private static readonly HashSet<string> DoctorStopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "for", "to", "who", "that", "please", "in", "at", "near", "with", "or", "and", "me", "about", "my",
+        "a", "an", "the", "like", "recommend", "suggest", "available", "first", "any", "some", "good", "best", "it", "this"
+    };
+
     public static string? Query(string text, IReadOnlyList<AgentDoctor> doctors)
     {
         // Pronouns refer to the previously selected doctor/specialty and must be
@@ -33,24 +39,11 @@ public static class AssistantPreferences
                 d.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase)
                       .Split(' ')[0]
                       .Equals(extracted, StringComparison.OrdinalIgnoreCase));
-            return byFirstName?.Name ?? extracted;
-        }
-
-        // "book doctor neranjani" / "i want doctor perera" - extract the word after "doctor"
-        var doctorWordMatch = Regex.Match(text, @"\b(?:doctor|doc)\s+([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
-        if (doctorWordMatch.Success)
-        {
-            var candidate = doctorWordMatch.Groups[1].Value.Trim();
-            // Match against first name (ignoring "Dr." prefix) of any known doctor
-            var byFirstName = doctors.FirstOrDefault(d =>
-                d.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase)
-                      .Split(' ')[0]
-                      .Equals(candidate.Split(' ')[0], StringComparison.OrdinalIgnoreCase));
             if (byFirstName != null) return byFirstName.Name;
-            // No exact first-name match — return the candidate as a free-text search term
-            if (candidate.Length >= 3) return candidate;
+            if (!DoctorStopWords.Contains(extracted)) return extracted;
         }
 
+        // Prioritize specialties and aliases before extracting generic words after "doctor"
         foreach (var specialty in doctors.Select(d => d.Specialty).Distinct().OrderByDescending(x => x.Length))
             if (text.Contains(specialty, StringComparison.OrdinalIgnoreCase)) return specialty;
         (string Pattern, string Query)[] aliases = [
@@ -58,7 +51,7 @@ public static class AssistantPreferences
             (@"\b(eye doctors?|eye specialists?|ophthalmologists?|ophthalmology)\b", "Ophthalmology"),
             (@"\b(dermatologists?|skin doctors?|dermatology)\b", "Dermatology"),
             (@"\b(pediatricians?|paediatricians?|child specialists?)\b", "Pediatrics"),
-            (@"\b(general doctors?|general medicine|general practitioners?)\b", "General Medicine"),
+            (@"\b(general doctors?|general medicine|general practitioners?|gp)\b", "General Medicine"),
             (@"\b(neurologists?|neurology)\b", "Neurology")
         ];
         foreach (var (pattern, query) in aliases)
@@ -68,6 +61,25 @@ public static class AssistantPreferences
                     return doctors.Select(d => d.Specialty).FirstOrDefault(s => s.Contains("eye", StringComparison.OrdinalIgnoreCase)) ?? query;
                 return query;
             }
+
+        // "book doctor neranjani" / "i want doctor perera" - extract the word after "doctor"
+        var doctorWordMatch = Regex.Match(text, @"\b(?:doctor|doc)\s+([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
+        if (doctorWordMatch.Success)
+        {
+            var candidate = doctorWordMatch.Groups[1].Value.Trim();
+            var firstWord = candidate.Split(' ')[0];
+            // Match against first name (ignoring "Dr." prefix) of any known doctor
+            var byFirstName = doctors.FirstOrDefault(d =>
+                d.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase)
+                      .Split(' ')[0]
+                      .Equals(firstWord, StringComparison.OrdinalIgnoreCase));
+            if (byFirstName != null) return byFirstName.Name;
+
+            // Stop-words like "for me", "for that", "to diagnose" are not doctor names
+            if (!DoctorStopWords.Contains(firstWord) && candidate.Length >= 3)
+                return candidate;
+        }
+
         return null;
     }
 

@@ -423,12 +423,12 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                     var isEmergencySpecialist = doctorSpecialty.Contains("emergency") || doctorSpecialty.Contains("critical");
                     var isGeneralSpecialist = doctorSpecialty.Contains("general") || doctorSpecialty.Contains("medicine") || doctorSpecialty == "";
                     var escalationCutoff = DateTime.UtcNow.AddMinutes(-2);
-                    var doctorResponseCutoff = DateTime.UtcNow.AddMinutes(-3);
+                    var doctorResponseCutoff = DateTime.UtcNow.AddMinutes(-4);
 
                     query = query.Where(x =>
                         // 1. Specifically assigned to this doctor
                         x.AssignedDoctorId == doctor.DoctorId ||
-                        // 2. Assigned to a specific doctor, but unresponded after 3 minutes -> broadcast/escalate to all doctors
+                        // 2. Assigned to a specific doctor, but unresponded after 4 minutes -> broadcast/escalate to all doctors
                         (x.AssignedDoctorId != null && (x.UpdatedAt <= doctorResponseCutoff || x.CreatedAt <= doctorResponseCutoff)) ||
                         // 3. Critical Emergencies: visible to ER/General, OR escalated to all doctors after 2 minutes
                         (x.PriorityLevel == "Critical" && (isEmergencySpecialist || isGeneralSpecialist || x.CreatedAt <= escalationCutoff)) ||
@@ -552,8 +552,10 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 {
                     workflow.AssignedDoctorId = preferredDoctor.DoctorId;
                     workflow.AssignedDoctor = preferredDoctor;
-                    workflow.TargetSpecialty = preferredDoctor.Specialization;
-                    workflow.FinalOutcome = $"Your assessment has been assigned to Dr. {preferredDoctor.FirstName} {preferredDoctor.LastName} ({preferredDoctor.Specialization}) for clinical review.";
+                    var docTitle = preferredDoctor.FirstName.Trim().StartsWith("Dr", StringComparison.OrdinalIgnoreCase)
+                        ? $"{preferredDoctor.FirstName.Trim()} {preferredDoctor.LastName.Trim()}"
+                        : $"Dr. {preferredDoctor.FirstName.Trim()} {preferredDoctor.LastName.Trim()}";
+                    workflow.FinalOutcome = $"Your assessment has been assigned to {docTitle} ({preferredDoctor.Specialization}) for clinical review.";
                 }
                 else
                 {
@@ -963,7 +965,9 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         var reviewedResponse = assessment["reviewedResponse"]?.GetValue<string>();
         var pendingReview = workflow.RequiresHumanReview && workflow.Status != TriageWorkflowStatuses.Completed;
         var patientMessage = reviewedResponse ?? (pendingReview && !redactPatientText
-            ? "Your assessment has been sent for clinical review." + (workflow.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent ? " " + workflow.FinalOutcome : "")
+            ? (!string.IsNullOrWhiteSpace(workflow.FinalOutcome) && workflow.FinalOutcome.Contains("assigned")
+                ? workflow.FinalOutcome
+                : "Your assessment has been sent for clinical review." + (workflow.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent ? " " + workflow.FinalOutcome : ""))
             : workflow.FinalOutcome);
         risks ??= result.RootElement.TryGetProperty("riskFactors", out var riskElement) ? riskElement.Deserialize<List<string>>() ?? [] : [];
         flags ??= result.RootElement.TryGetProperty("redFlags", out var flagElement) ? flagElement.Deserialize<List<string>>() ?? [] : [];
@@ -988,7 +992,11 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             ReviewedResponse = reviewedResponse,
             PatientReportedSymptoms = redactPatientText ? RedactUnneededIdentifiers(workflow.Symptoms) : workflow.Symptoms, Guidance = guidance, RiskFactors = risks, RedFlags = flags, UrgentFlags = urgentFlags, ClinicalReviewFlags = clinicalReviewFlags, MissingInformation = missing, ClinicalFacts = MapFacts(facts), DecisionBasis = decisionBasis, Plan = JsonSerializer.Deserialize<List<TriagePlanStepDto>>(workflow.PlanJson) ?? [], RuleSetVersion = workflow.RuleSetVersion, WorkflowVersion = workflow.WorkflowVersion,
             AssignedDoctorId = workflow.AssignedDoctorId,
-            AssignedDoctorName = workflow.AssignedDoctor != null ? $"Dr. {workflow.AssignedDoctor.FirstName} {workflow.AssignedDoctor.LastName}" : null,
+            AssignedDoctorName = workflow.AssignedDoctor != null
+                ? (workflow.AssignedDoctor.FirstName.Trim().StartsWith("Dr", StringComparison.OrdinalIgnoreCase)
+                    ? $"{workflow.AssignedDoctor.FirstName.Trim()} {workflow.AssignedDoctor.LastName.Trim()}"
+                    : $"Dr. {workflow.AssignedDoctor.FirstName.Trim()} {workflow.AssignedDoctor.LastName.Trim()}")
+                : null,
             TargetSpecialty = workflow.TargetSpecialty,
             PriorityLevel = string.IsNullOrWhiteSpace(workflow.PriorityLevel) ? "Normal" : workflow.PriorityLevel,
             CreatedAt = workflow.CreatedAt, UpdatedAt = workflow.UpdatedAt };

@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:medicore_mobile/core/constants/app_colors.dart';
 import 'package:medicore_mobile/core/services/api_service.dart';
-import 'package:medicore_mobile/features/clinic_finder/screens/emergency_clinic_screen.dart';
 import 'package:medicore_mobile/models/hospital_assistant.dart';
 
 /// One patient conversation; routing, safety and approval authority stay on the server.
@@ -699,19 +698,6 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                           ),
                           icon: const Icon(Icons.phone_in_talk, size: 18),
                           label: const Text('Call 1990 Ambulance'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const EmergencyClinicScreen(),
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red.shade800,
-                            side: BorderSide(color: Colors.red.shade600),
-                          ),
-                          icon: const Icon(Icons.local_hospital, size: 18),
-                          label: const Text('Nearest 24/7 ER Clinics'),
                         ),
                       ],
                     ),
