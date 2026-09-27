@@ -3276,75 +3276,6 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _FeatureTileData {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color,
-      {this.onTap});
-}
-
-class _FeatureGrid extends StatelessWidget {
-  final List<_FeatureTileData> tiles;
-
-  const _FeatureGrid({required this.tiles});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.06,
-      children: tiles
-          .map((tile) => InkWell(
-                onTap: tile.onTap,
-                borderRadius: BorderRadius.circular(18),
-                child: _FeatureTile(tile: tile),
-              ))
-          .toList(),
-    );
-  }
-}
-
-class _FeatureTile extends StatelessWidget {
-  final _FeatureTileData tile;
-
-  const _FeatureTile({required this.tile});
-
-  @override
-  Widget build(BuildContext context) {
-    return _SurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            backgroundColor: tile.color.withValues(alpha: 0.12),
-            child: Icon(tile.icon, color: tile.color, size: 20),
-          ),
-          const Spacer(),
-          Text(tile.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 2),
-          Text(tile.subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppColors.textMutedLight, fontSize: 11)),
-        ],
-      ),
-    );
-  }
-}
-
 class _SurfaceCard extends StatelessWidget {
   final Widget child;
 
@@ -3537,16 +3468,28 @@ class _AppointmentCard extends StatelessWidget {
                       value: _formatFee(appointment.consultationFee))),
             ],
           ),
-          if (onReschedule != null) ...[
+          if (onReschedule != null || onCancel != null) ...[
             const SizedBox(height: 12),
-            _OutlineAction(label: 'Reschedule', onTap: onReschedule),
-          ],
-          if (onCancel != null) ...[
-            const SizedBox(height: 12),
-            _OutlineAction(
-              label: 'Cancel',
-              danger: true,
-              onTap: onCancel,
+            Row(
+              children: [
+                if (onReschedule != null)
+                  Expanded(
+                    child: _OutlineAction(
+                      label: 'Reschedule',
+                      onTap: onReschedule,
+                    ),
+                  ),
+                if (onReschedule != null && onCancel != null)
+                  const SizedBox(width: 12),
+                if (onCancel != null)
+                  Expanded(
+                    child: _OutlineAction(
+                      label: 'Cancel',
+                      danger: true,
+                      onTap: onCancel,
+                    ),
+                  ),
+              ],
             ),
           ],
         ],
