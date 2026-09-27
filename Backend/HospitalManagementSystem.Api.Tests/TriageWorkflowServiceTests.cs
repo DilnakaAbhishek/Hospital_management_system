@@ -751,6 +751,48 @@ public class TriageWorkflowServiceTests
         Assert.Equal("severity_score", Assert.Single(current.Guidance!.FollowUpItems).Id);
     }
 
+    [Fact]
+    public async Task GetPendingClinicalReviewsAsync_EscalatesToOtherDoctorsAfterFourMinutes()
+    {
+        await using var db = CreateDb();
+        var userA = new User { UserId = 10, Role = "Doctor", Email = "docA@example.com", PasswordHash = "x" };
+        var docA = new Doctor { DoctorId = 1, UserId = 10, FirstName = "Doc", LastName = "A", Specialization = "Cardiology" };
+        var userB = new User { UserId = 20, Role = "Doctor", Email = "docB@example.com", PasswordHash = "x" };
+        var docB = new Doctor { DoctorId = 2, UserId = 20, FirstName = "Doc", LastName = "B", Specialization = "Dermatology" };
+        db.Users.AddRange(userA, userB);
+        db.Doctors.AddRange(docA, docB);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var started = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have cancer." });
+        var assigned = await service.SetPatientClinicalReviewChoiceAsync(started.WorkflowId, 1, requested: true, preferredDoctorId: docA.DoctorId);
+        Assert.NotNull(assigned);
+
+        // Immediately, Doctor A sees it, but Doctor B does not
+        var pendingA = await service.GetPendingClinicalReviewsAsync(userA.UserId);
+        var pendingB = await service.GetPendingClinicalReviewsAsync(userB.UserId);
+        Assert.Single(pendingA);
+        Assert.Empty(pendingB);
+
+        // At 3 minutes of no response from Doctor A (under 4 minutes), Doctor B still does NOT see it
+        var workflowEntity = await db.TriageWorkflows.SingleAsync(w => w.TriageWorkflowId == started.WorkflowId);
+        workflowEntity.CreatedAt = DateTime.UtcNow.AddMinutes(-3);
+        workflowEntity.UpdatedAt = DateTime.UtcNow.AddMinutes(-3);
+        await db.SaveChangesAsync();
+
+        var stillPendingB = await service.GetPendingClinicalReviewsAsync(userB.UserId);
+        Assert.Empty(stillPendingB);
+
+        // After 5 minutes (exceeded 4-minute cutoff), Doctor B also sees it in their queue
+        workflowEntity.CreatedAt = DateTime.UtcNow.AddMinutes(-5);
+        workflowEntity.UpdatedAt = DateTime.UtcNow.AddMinutes(-5);
+        await db.SaveChangesAsync();
+
+        var escalatedPendingB = await service.GetPendingClinicalReviewsAsync(userB.UserId);
+        Assert.Single(escalatedPendingB);
+        Assert.Equal(started.WorkflowId, escalatedPendingB[0].WorkflowId);
+    }
+
     private static Microsoft.Extensions.Configuration.IConfiguration GeminiSettings() =>
         new Microsoft.Extensions.Configuration.ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Gemini:ApiKey"] = "test-key" }).Build();
 

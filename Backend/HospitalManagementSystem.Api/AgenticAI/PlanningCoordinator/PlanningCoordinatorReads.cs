@@ -10,6 +10,9 @@ public sealed partial class PlanningCoordinatorAgent
 {
     private async Task<bool> TryReadAsync(PatientDto patient, AssistantState state, string text, CancellationToken token)
     {
+        // Do not intercept active conversational answers or clinical choices
+        if (state.Awaiting is "clinical-review-choice" or "clinical-answer" or "cancellation-reason") return false;
+
         // Mutation verbs remain in the existing proposal/approval route.
         if (Has(text, @"\b(book|booking|reserve|schedule|reschedule|cancel|create|confirm|proceed)\b")) return false;
         if (Has(text, @"\b(thank(s| you)?|appreciate it)\b"))
@@ -53,11 +56,20 @@ public sealed partial class PlanningCoordinatorAgent
             }
             return true;
         }
-        var extension = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
-        if (extension != null)
+        // Doctor directory / specialty searches take precedence over extensions unless
+        // the user is explicitly requesting their medical records/reports/prescriptions.
+        var isExplicitMedicalRecordQuery = Has(text, @"\b(my\s+records?|my\s+reports?|medical\s+records?|medical\s+reports?|lab\s+reports?|lab\s+results?|prescriptions?|discharge\s+summary|doctor\s+notes?)\b")
+            && !Has(text, @"\b(general\s+medicine\s+doctor|doctor\s+in\s+general\s+medicine|general\s+medicine)\b");
+        var isDoctorOrSpecialtySearch = Has(text, @"\b(doctors?|specialists?|general medicine|cardiolog(y|ists?)|ophthalmolog(y|ists?)|dermatolog(y|ists?)|pediatric(s|ians?)|neurolog(y|ists?))\b");
+
+        if (!isDoctorOrSpecialtySearch || isExplicitMedicalRecordQuery)
         {
-            Reply(state, await extension.ReadAsync(text, patient, token), "COMPLETED");
-            return true;
+            var extension = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
+            if (extension != null)
+            {
+                Reply(state, await extension.ReadAsync(text, patient, token), "COMPLETED");
+                return true;
+            }
         }
         if (Has(text, @"\bappointments?\b") && Has(text, @"\b(my|next|existing|have|history|all|cancelled|canceled|show|list|check|view)\b"))
         {
@@ -91,7 +103,16 @@ public sealed partial class PlanningCoordinatorAgent
         var doctorRequest = Has(text, @"\b(doctors?|specialists?|cardiologists?|cardiology|general medicine|ophthalmologists?|dermatologists?|neurologists?)\b");
         var followup = state.SearchQuery != null && Has(text, @"\b(which one|which of them|available|availability|tomorrow|morning|afternoon|evening)\b");
         var preferenceReply = state.ActiveTask == "availability" && state.ReadSearchMode != null && state.PendingAction == null;
-        if (!doctorRequest && !followup && !preferenceReply) return false;
+        if (!doctorRequest && !followup && !preferenceReply)
+        {
+            var fallbackExtension = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
+            if (fallbackExtension != null)
+            {
+                Reply(state, await fallbackExtension.ReadAsync(text, patient, token), "COMPLETED");
+                return true;
+            }
+            return false;
+        }
         // A date-only reply to an explicit booking stays in the booking flow.
         if (!doctorRequest && state.WantsAppointment && state.ReadSearchMode == null) return false;
         var doctors = await tools.FindDoctorsAsync("");
@@ -119,6 +140,20 @@ public sealed partial class PlanningCoordinatorAgent
         state.ActiveTask = availability ? "availability" : "doctor-information";
         if (query == null)
         {
+            if (Has(text, @"\b(suggest|recommend|who\s+should|which\s+doctor|help\s+me\s+choose|suitable\s+doctor)\b"))
+            {
+                var gmDoctors = await tools.FindDoctorsAsync("General Medicine");
+                if (gmDoctors.Count > 0)
+                {
+                    state.SearchQuery = "General Medicine";
+                    state.Doctors = gmDoctors;
+                    var docNames = string.Join(", ", gmDoctors.Select(d => d.Name.StartsWith("Dr") ? d.Name : $"Dr. {d.Name}"));
+                    Reply(state, $"Based on your symptoms, a consultation in General Medicine is recommended. Approved doctors: {docNames}. You can ask about their availability or request a booking.",
+                        "COMPLETED", ["The approved doctor directory was checked."]);
+                    return true;
+                }
+            }
+
             Reply(state, "Which doctor or specialty would you like me to look up?", "GATHERING_INFORMATION", ["The approved doctor directory was checked."]);
             return true;
         }

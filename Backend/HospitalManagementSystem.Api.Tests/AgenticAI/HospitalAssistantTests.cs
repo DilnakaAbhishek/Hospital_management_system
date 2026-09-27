@@ -913,6 +913,74 @@ public sealed class HospitalAssistantTests
 
 
     [Fact]
+    public async Task ClinicalReviewChoice_PresentsOnlyTwoOptions_AndSupportsDoctorSelection()
+    {
+        await using var h = await Harness.Create();
+        var doctor = new Doctor { DoctorId = 10, UserId = 100, FirstName = "Sunil", LastName = "Perera", Specialization = "Cardiologist", RegistrationStatus = DoctorRegistrationStatuses.Approved };
+        h.Db.Doctors.Add(doctor);
+        await h.Db.SaveChangesAsync();
+
+        // Step 1: Start with condition requiring optional clinical review
+        var first = await h.Send("I have cancer");
+        Assert.Equal("GATHERING_INFORMATION", first.State);
+        var lastMessage = first.Messages.Last().Text;
+
+        // Verify Option 1 ("Next Available Doctor") was removed and only 2 options are presented
+        Assert.Contains("1. 🩺 Select a Specific Doctor", lastMessage);
+        Assert.Contains("2. ✕ Not right now", lastMessage);
+        Assert.DoesNotContain("Next Available Doctor", lastMessage);
+        Assert.DoesNotContain("Fastest", lastMessage);
+
+        // Step 2: Patient sends "1" to request doctor selection
+        var docPrompt = await h.Send("1", first.ConversationId);
+        Assert.Contains("Please reply with the name of your preferred doctor or specialty", docPrompt.Messages.Last().Text);
+        Assert.Contains("Dr. Sunil Perera", docPrompt.Messages.Last().Text);
+
+        // Step 3: Patient names the doctor
+        var assigned = await h.Send("Dr. Sunil Perera", first.ConversationId);
+        Assert.Equal("WAITING_FOR_HUMAN_APPROVAL", assigned.State);
+        var workflow = (await h.Workflows.GetHistoryForPatientAsync(1)).First();
+        Assert.Equal(doctor.DoctorId, workflow.AssignedDoctorId);
+    }
+
+    [Fact]
+    public async Task ClinicalReviewChoice_ReplyingWithSpecialty_AssignsReviewAndDoesNotTriggerMedicalRecordAgent()
+    {
+        await using var h = await Harness.Create();
+        var doctor = new Doctor { DoctorId = 11, UserId = 101, FirstName = "Dilnaka", LastName = "Perera", Specialization = "General Medicine", RegistrationStatus = DoctorRegistrationStatuses.Approved };
+        h.Db.Doctors.Add(doctor);
+        await h.Db.SaveChangesAsync();
+
+        var first = await h.Send("I have cancer");
+        Assert.Equal("GATHERING_INFORMATION", first.State);
+
+        // Patient types "general medicine" directly when choosing review
+        var assigned = await h.Send("general medicine", first.ConversationId);
+        Assert.Equal("WAITING_FOR_HUMAN_APPROVAL", assigned.State);
+        var message = assigned.Messages.Last().Text;
+        Assert.Contains("Dilnaka Perera", message);
+        Assert.DoesNotContain("recorded diagnosis", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("At your latest visit", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Dr. Dr.", message);
+    }
+
+    [Fact]
+    public async Task EmergencyAlert_ProvidesCriticalEmergencyGuidance()
+    {
+        await using var h = await Harness.Create();
+        var result = await h.Send("I have severe chest pain and difficulty breathing");
+        Assert.Equal("WAITING_FOR_HUMAN_APPROVAL", result.State);
+        var message = result.Messages.Last().Text;
+        Assert.Contains("CRITICAL EMERGENCY ALERT", message);
+        Assert.Contains("1990", message);
+        Assert.Contains("911", message);
+        Assert.Contains("Emergency Room", message);
+        // Ensure internal diagnostics did not leak
+        Assert.DoesNotContain("vital signs", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Missing.", message);
+    }
+
+    [Fact]
     public async Task AlternativeRequestSearchesWithoutCancellingCurrentAppointment()
     {
         await using var h = await Harness.Create();
@@ -1155,6 +1223,27 @@ public sealed class HospitalAssistantTests
                 new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments, SmsTestSupport.Create(db), intent, model) };
         }
         public ValueTask DisposeAsync() => Db.DisposeAsync();
+    }
+
+    [Fact]
+    public void AssistantPreferences_StopWordsAreIgnoredAndSpecialtiesPrioritized()
+    {
+        IReadOnlyList<AgentDoctor> doctors = [
+            new("D1", 1, "Dr. Dilnaka Perera", "General Medicine"),
+            new("D2", 2, "Dr. Kasun Silva", "Cardiology")
+        ];
+
+        // "please suggest a doctor for me" -> candidate "for me" should be ignored (stop words)
+        var queryForMe = AssistantPreferences.Query("please suggest a doctor for me", doctors);
+        Assert.Null(queryForMe);
+
+        // "like a general doctor for that" -> resolves to "General Medicine" alias
+        var queryGeneral = AssistantPreferences.Query("like a general doctor for that", doctors);
+        Assert.Equal("General Medicine", queryGeneral);
+
+        // "like a general medicine doctor" -> resolves to "General Medicine"
+        var queryGeneralMed = AssistantPreferences.Query("like a general medicine doctor", doctors);
+        Assert.Equal("General Medicine", queryGeneralMed);
     }
 
     private sealed class FakeIntentClient : IAssessmentIntentClient

@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:medicore_mobile/core/constants/app_colors.dart';
 import 'package:medicore_mobile/core/services/api_service.dart';
-import 'package:medicore_mobile/features/clinic_finder/screens/emergency_clinic_screen.dart';
 import 'package:medicore_mobile/models/hospital_assistant.dart';
 
 /// One patient conversation; routing, safety and approval authority stay on the server.
@@ -700,19 +699,6 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                           icon: const Icon(Icons.phone_in_talk, size: 18),
                           label: const Text('Call 1990 Ambulance'),
                         ),
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const EmergencyClinicScreen(),
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red.shade800,
-                            side: BorderSide(color: Colors.red.shade600),
-                          ),
-                          icon: const Icon(Icons.local_hospital, size: 18),
-                          label: const Text('Nearest 24/7 ER Clinics'),
-                        ),
                       ],
                     ),
                   ],
@@ -720,8 +706,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
               ),
             ),
           if (message.role != 'user' &&
-              message.text.contains('Next Available Doctor') &&
-              message.text.contains('Select a Specific Doctor'))
+              message.text.contains('Select a Specific Doctor') &&
+              (message.text.contains('Not right now') || message.text.contains('clinical review')))
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 12),
               child: Container(
@@ -748,19 +734,14 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                       runSpacing: 8,
                       children: [
                         ActionChip(
-                          avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
-                          label: const Text('⚡ Next Available Doctor'),
-                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '1'),
-                        ),
-                        ActionChip(
                           avatar: const Icon(Icons.person_search, size: 16),
                           label: const Text('🩺 Choose Doctor'),
-                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '2'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '1'),
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.close, size: 16),
                           label: const Text('✕ Not right now'),
-                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '3'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '2'),
                         ),
                       ],
                     ),

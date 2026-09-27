@@ -642,7 +642,7 @@ public sealed class GeminiSafeTriageQuestionPlanningAgent(HttpClient http, IConf
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 45, 10, 90)));
             if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"))) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
             var input = JsonSerializer.Serialize(new { extraction.Symptoms, extraction.Concepts, extraction.MissingInformation, extraction.Facts, extraction.Requirements, alreadyAsked });
-            var requestBody = new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = input } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 360, responseMimeType = "application/json" } };
+            var requestBody = new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = input } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 1500, responseMimeType = "application/json" } };
             var (model, response) = await GeminiRequest.PostWithFallbackAsync(http, configuration, requestBody, logger, timeout.Token);
             await GeminiRequest.EnsureSuccessAsync(response, model, timeout.Token);
             using var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
@@ -714,11 +714,16 @@ public sealed class GeminiSafeTriageResponseGenerationAgent(HttpClient http, ICo
     - Not contain prescriptions or medication changes.
     - Not imply that an appointment or treatment has already been arranged.
 
-    For non-urgent assessments, make the actions genuinely useful by covering
-    practical, low-risk self-care where relevant: rest, fluids, regular meals,
-    avoiding known symptom triggers or irritants, and taking it easy with
-    strenuous activity. Do not mention medication unless the supplied context
-    explicitly authorizes it.
+    For non-urgent assessments, make the actions genuinely useful, diverse, and tailored specifically to the patient's reported symptoms and their follow-up answers.
+    Provide practical, low-risk, symptom-appropriate self-care actions relevant to their specific condition. For example:
+    - For headaches or migraines: rest in a quiet, dimly lit or darkened room, apply a cool or warm compress to forehead or neck, stay well-hydrated, reduce screen exposure, and note potential triggers.
+    - For sore throat or cough: gargle with warm salt water, sip warm fluids with honey or herbal tea, use a humidifier or steam inhalation, and rest the voice.
+    - For stomach upset or nausea: sip clear fluids or electrolyte drinks slowly, try bland foods (crackers, rice, toast, bananas), avoid greasy, spicy, or heavy meals, and avoid lying down immediately after eating.
+    - For muscle, back, or joint pain: apply ice or gentle heat, practice gentle posture changes, avoid heavy lifting or sudden twisting, and avoid prolonged sitting or standing.
+    - For eye strain: rest eyes away from screens using the 20-20-20 rule, adjust ambient lighting, and apply a soothing warm compress.
+    - For skin irritation or rash: keep the area clean and dry, avoid scratching, wear loose breathable fabrics, and avoid harsh detergents or scented products.
+    Tailor your advice specifically to what the patient reported and the follow-up details they shared. Do NOT give identical generic advice for different symptoms.
+    Do not mention prescription medication unless the supplied context explicitly authorizes it.
 
     SAFETY NETTING
 
@@ -804,7 +809,7 @@ public sealed class GeminiSafeTriageResponseGenerationAgent(HttpClient http, ICo
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 45, 10, 90)));
             if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"))) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
-            var requestBody = new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = JsonSerializer.Serialize(context) } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 360, responseMimeType = "application/json" } };
+            var requestBody = new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = JsonSerializer.Serialize(context) } } } }, generationConfig = new { temperature = 0.3, maxOutputTokens = 2048, responseMimeType = "application/json" } };
             var (model, response) = await GeminiRequest.PostWithFallbackAsync(http, configuration, requestBody, logger, timeout.Token);
             await GeminiRequest.EnsureSuccessAsync(response, model, timeout.Token);
             using var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
