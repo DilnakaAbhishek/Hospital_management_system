@@ -207,8 +207,6 @@ public sealed class ClinicalInformationExtractionWorkflowAgent(ISafeTriageSemant
         } while (context.Extraction.Status != "Completed" && attempts < maxAttempts && !cancellationToken.IsCancellationRequested);
         watch.Stop();
         var completed = context.Extraction.Status == "Completed";
-        // Transport, timeout and schema failures are operational failures. They must
-        // stop this run through FailedSafely, not masquerade as clinical uncertainty.
         if (!completed) context.FailedSafely = true;
         if (completed)
         {

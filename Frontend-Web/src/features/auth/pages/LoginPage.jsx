@@ -1,4 +1,4 @@
-import { Activity, Eye, EyeOff, Lock, Mail } from 'lucide-react'
+import { Activity, Clock, Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Button from '../../../components/Button'
@@ -12,6 +12,14 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState(() => {
+    const reason = sessionStorage.getItem('hms_logout_reason')
+    if (reason === 'inactive') {
+      sessionStorage.removeItem('hms_logout_reason')
+      return 'You were signed out after 15 minutes of inactivity for clinical workstation security. Please sign in again.'
+    }
+    return ''
+  })
   const [form, setForm] = useState({ email: '', password: '' })
 
   const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }))
@@ -55,6 +63,27 @@ export default function LoginPage() {
           <h2 className="login-card__title">Welcome back</h2>
           <p className="login-card__sub">Sign in to Hospital Management System</p>
         </div>
+
+        {notice && (
+          <div
+            style={{
+              margin: '0 0 16px 0',
+              padding: '10px 14px',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid var(--clr-danger, #ef4444)',
+              borderRadius: '8px',
+              color: 'var(--clr-danger, #ef4444)',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 500,
+            }}
+          >
+            <Clock size={16} />
+            <span>{notice}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="login-form" id="login-form">
           <div className="login-field">

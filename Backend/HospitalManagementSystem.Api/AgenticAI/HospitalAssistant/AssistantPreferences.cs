@@ -54,12 +54,12 @@ public static class AssistantPreferences
         foreach (var specialty in doctors.Select(d => d.Specialty).Distinct().OrderByDescending(x => x.Length))
             if (text.Contains(specialty, StringComparison.OrdinalIgnoreCase)) return specialty;
         (string Pattern, string Query)[] aliases = [
-            (@"\b(cardiologist|cardiology|heart doctor)\b", "Cardiology"),
-            (@"\b(eye doctor|eye specialist|ophthalmologist|ophthalmology)\b", "Ophthalmology"),
-            (@"\b(dermatologist|skin doctor|dermatology)\b", "Dermatology"),
-            (@"\b(pediatrician|paediatrician|child specialist)\b", "Pediatrics"),
-            (@"\b(general doctor|general medicine|general practitioner)\b", "General Medicine"),
-            (@"\b(neurologist|neurology)\b", "Neurology")
+            (@"\b(cardiologists?|cardiology|heart doctors?)\b", "Cardiology"),
+            (@"\b(eye doctors?|eye specialists?|ophthalmologists?|ophthalmology)\b", "Ophthalmology"),
+            (@"\b(dermatologists?|skin doctors?|dermatology)\b", "Dermatology"),
+            (@"\b(pediatricians?|paediatricians?|child specialists?)\b", "Pediatrics"),
+            (@"\b(general doctors?|general medicine|general practitioners?)\b", "General Medicine"),
+            (@"\b(neurologists?|neurology)\b", "Neurology")
         ];
         foreach (var (pattern, query) in aliases)
             if (Has(text, pattern))

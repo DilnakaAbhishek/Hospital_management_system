@@ -90,13 +90,14 @@ public sealed partial class PlanningCoordinatorAgent
             {
                 var workflow = await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId);
                 if (workflow?.ReviewedResponse is { Length: > 0 } reviewedResponse &&
-                    !state.Messages.Any(message => message.Role == "assistant" && message.Text.Contains(reviewedResponse, StringComparison.Ordinal)))
+                    !state.Messages.Any(message => message.Role == "assistant" && message.Text.Contains("Clinical review completed\n\n" + reviewedResponse, StringComparison.Ordinal)))
                 {
                     ApplyWorkflow(state, workflow);
                     ClinicalReply(state, workflow);
                 }
-                else if (state.Awaiting == "clinical-review" && workflow != null && workflow.TriageLevel is not (TriageLevels.Emergency or TriageLevels.Urgent) &&
-                         workflow.Status != TriageWorkflowStatuses.FailedSafely)
+                else if (state.Awaiting == "clinical-review" && workflow != null &&
+                         workflow.Status == TriageWorkflowStatuses.PendingClinicalReview &&
+                         workflow.TriageLevel is not (TriageLevels.Emergency or TriageLevels.Urgent))
                 {
                     // Self-heal conversations that were corrupted by the old CheckPatientSafetyAsync
                     // bug which overwrote state.WorkflowId with a ClinicalReview-level workflow from
@@ -341,7 +342,7 @@ public sealed partial class PlanningCoordinatorAgent
             await StartClinicalAsync(patient, state, text, token);
             return;
         }
-        if (informationQuestion)
+        if (informationQuestion && state.Awaiting != "clinical-answer")
         {
             // Informational questions do not create or continue a triage workflow.
             // Explicit red flags above retain priority over this branch.
@@ -392,6 +393,7 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (state.PendingAction != null && Has(text, @"^(yes|okay|ok|confirm( this appointment)?|select this|book it|that looks good|go ahead|do it)[.! ]*$"))
         { Reply(state, "Choose your appointment below, then use the confirmation button to finish.", "WAITING_FOR_HUMAN_APPROVAL"); return; }
+        await CheckPatientSafetyAsync(patient.PatientId, state);
         // --- FailedSafely Self-Retry ---
         // If the patient is stuck on a FailedSafely block (technical failure, not a medical danger)
         // and explicitly asks to start fresh, clear the stale workflow and let them try again.
@@ -754,11 +756,12 @@ public sealed partial class PlanningCoordinatorAgent
         var unsafeResult = workflow.TriageLevel is "Emergency" or "Urgent" || workflow.Status == TriageWorkflowStatuses.FailedSafely;
         var needsReview = workflow.RequiresHumanReview &&
             workflow.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested;
-        var optionalReview = !workflow.RequiresHumanReview && workflow.TriageLevel == TriageLevels.ClinicalReview;
-        // Emergency/urgent outcomes are never downgraded by a later conversational message.
         var finalizedCurrentReview = state.WorkflowId == workflow.WorkflowId &&
             workflow.Status == TriageWorkflowStatuses.Completed &&
             workflow.ApprovalStatus is TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected or "ClinicianResponse";
+        var optionalReview = !finalizedCurrentReview &&
+            !workflow.RequiresHumanReview &&
+            workflow.TriageLevel == TriageLevels.ClinicalReview;
         var alreadyUrgent = state.Clinical?.TriageLevel is "Emergency" or "Urgent" ||
             (state.Clinical?.FailedSafely == true && !finalizedCurrentReview);
         // A clinical review requires staff approval after the patient's explicit slot

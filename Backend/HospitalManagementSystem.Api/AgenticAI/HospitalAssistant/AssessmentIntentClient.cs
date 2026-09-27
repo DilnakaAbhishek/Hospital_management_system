@@ -206,7 +206,7 @@ public sealed class GeminiAssessmentIntentClient(HttpClient http, IConfiguration
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 30, 5, 90)));
             using var schema = JsonDocument.Parse(DecisionSchema);
-            var models = new List<string> { configuration["Gemini:AssessmentModel"] ?? configuration["Gemini:Model"] ?? "gemini-3.5-flash-lite" };
+            var models = new List<string> { configuration["Gemini:AssessmentModel"] ?? "gemini-3.1-flash-lite" };
 
             foreach (var model in models)
             {

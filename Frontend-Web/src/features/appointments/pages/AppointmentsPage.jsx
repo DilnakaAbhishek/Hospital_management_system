@@ -943,11 +943,16 @@ export default function AppointmentsPage() {
         open={appointmentOpen}
         onClose={closeAppointmentModal}
         title={editTarget ? 'Edit Appointment' : 'Create Appointment'}
-        subtitle={editTarget ? 'Update appointment details' : 'Book on behalf of a patient'}
+        subtitle={editTarget ? 'Select a new available date and session' : 'Book on behalf of a patient'}
         size="lg"
         id="appointment-form-modal"
       >
         <form className="appt-form" onSubmit={handleAppointmentSubmit}>
+          {editTarget && (
+            <p className="appt-form__hint appt-form__wide" style={{ color: 'var(--color-primary)', fontWeight: 500, margin: '0 0 10px 0' }}>
+              Patient and doctor details are locked. Select another available date and session if you wish to reschedule.
+            </p>
+          )}
           <div className="appt-form__wide appt-top-row">
             <label>Specialization
               <select
@@ -962,7 +967,7 @@ export default function AppointmentsPage() {
                     appointmentDate: '',
                   })
                 }}
-                disabled={Boolean(doctorError) || appointmentSpecializations.length === 0}
+                disabled={Boolean(editTarget) || Boolean(doctorError) || appointmentSpecializations.length === 0}
               >
                 <option value="">{appointmentSpecializations.length ? 'Select specialization' : 'No specializations available'}</option>
                 {appointmentSpecializations.map(specialty => (
@@ -975,7 +980,7 @@ export default function AppointmentsPage() {
                 doctors={doctors}
                 selectedSpecialty={appointmentForm.specialty}
                 selectedDoctorName={appointmentForm.doctorName}
-                disabled={Boolean(doctorError) || doctors.length === 0}
+                disabled={Boolean(editTarget) || Boolean(doctorError) || doctors.length === 0}
                 placeholder={appointmentForm.specialty ? 'Type to search doctor...' : 'Type to search all doctors...'}
                 required
                 onSelectDoctor={(doctor) => {
@@ -1029,7 +1034,21 @@ export default function AppointmentsPage() {
           {selectedSlot && (
             <div className="appt-details appt-form__wide">
               <div>
-                <strong>{editTarget ? `Appointment #${editTarget.appointmentNumber}` : 'Appointment details'}</strong>
+                <strong>
+                  {editTarget
+                    ? String(selectedSlot.doctorTimeSlotId) === String(editTarget.doctorTimeSlotId)
+                      ? `Appointment #${editTarget.appointmentNumber} (Current Session)`
+                      : `Moving from #${editTarget.appointmentNumber} → New Session`
+                    : 'Appointment details'}
+                </strong>
+                {editTarget && String(selectedSlot.doctorTimeSlotId) !== String(editTarget.doctorTimeSlotId) && (
+                  <>
+                    <span>
+                      New queue number: {selectedSlot.nextAppointmentNumber > 0 ? `#${selectedSlot.nextAppointmentNumber}` : 'Assigned upon save'}
+                    </span>
+                    <small>A new queue number for this doctor's session will be automatically assigned on save.</small>
+                  </>
+                )}
                 {!editTarget && (
                   <>
                     <span>Next available appointment number: {selectedSlot.nextAppointmentNumber > 0 ? `#${selectedSlot.nextAppointmentNumber}` : 'Unavailable'}</span>
@@ -1055,7 +1074,8 @@ export default function AppointmentsPage() {
           <label>Patient Name
             <input
               required
-              disabled={hasNoUpcomingSessions}
+              disabled={Boolean(editTarget) || hasNoUpcomingSessions}
+              readOnly={Boolean(editTarget)}
               list="appointment-patients"
               value={appointmentForm.patientName}
               onChange={e => handlePatientNameChange(e.target.value)}
@@ -1073,16 +1093,17 @@ export default function AppointmentsPage() {
             <input
               type="number"
               min="0"
-              disabled={hasNoUpcomingSessions}
+              disabled={Boolean(editTarget) || hasNoUpcomingSessions}
               value={appointmentForm.patientAge}
               onChange={e => setAppointmentForm({ ...appointmentForm, patientAge: e.target.value })}
-              readOnly={Boolean(selectedPatient)}
+              readOnly={Boolean(editTarget) || Boolean(selectedPatient)}
             />
           </label>
           <label>Patient Phone
             <input
               required
-              disabled={hasNoUpcomingSessions}
+              disabled={Boolean(editTarget) || hasNoUpcomingSessions}
+              readOnly={Boolean(editTarget)}
               value={appointmentForm.patientPhone}
               onChange={e => setAppointmentForm({ ...appointmentForm, patientPhone: e.target.value })}
             />
@@ -1090,14 +1111,15 @@ export default function AppointmentsPage() {
           <label>Patient Email
             <input
               type="email"
-              disabled={hasNoUpcomingSessions}
+              disabled={Boolean(editTarget) || hasNoUpcomingSessions}
+              readOnly={Boolean(editTarget)}
               value={appointmentForm.patientEmail}
               onChange={e => setAppointmentForm({ ...appointmentForm, patientEmail: e.target.value })}
             />
           </label>
           <label>Appointment Type
             <select
-              disabled={hasNoUpcomingSessions}
+              disabled={Boolean(editTarget) || hasNoUpcomingSessions}
               value={appointmentForm.appointmentType}
               onChange={e => setAppointmentForm({ ...appointmentForm, appointmentType: e.target.value })}
             >

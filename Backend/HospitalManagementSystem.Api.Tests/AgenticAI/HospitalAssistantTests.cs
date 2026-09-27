@@ -156,12 +156,14 @@ public sealed class HospitalAssistantTests
     [Theory]
     [InlineData("Approved")]
     [InlineData("ClinicianResponse")]
+    [InlineData("Rejected")]
     public async Task ReviewedFinalResponseIsDeliveredOnceOnRefresh(string decision)
     {
         await using var h = await Harness.Create();
         var start = await h.Send("I have cancer");
+        start = await h.Send("yes", start.ConversationId);
         var workflow = (await h.Workflows.GetHistoryForPatientAsync(1)).Single();
-        await AssertReviewParity(h, start, workflow, "I have cancer", TriageLevels.ClinicalReview);
+        await AssertReviewParity(h, start, workflow, "I have cancer", TriageLevels.ClinicalReview, requestedReview: true);
         const string response = "Here is the clinician's final care suggestion.";
         var reviewed = await h.Workflows.ReviewAsync(workflow.WorkflowId, 42, new() { Decision = decision, FinalResponse = response });
         var updated = await h.Service.GetAsync(1, start.ConversationId, default);
@@ -876,7 +878,7 @@ public sealed class HospitalAssistantTests
         await AssertReviewParity(h, emergency, workflow, "Now I have severe chest pain and difficulty breathing", TriageLevels.Emergency);
     }
 
-    private static async Task AssertReviewParity(Harness h, AssistantConversationResponse response, TriageWorkflowDto workflow, string symptoms, string level)
+    private static async Task AssertReviewParity(Harness h, AssistantConversationResponse response, TriageWorkflowDto workflow, string symptoms, string level, bool requestedReview = false)
     {
         Assert.Equal(TriageWorkflowStatuses.PendingClinicalReview, workflow.Status);
         Assert.Equal(level, workflow.TriageLevel);
@@ -893,6 +895,8 @@ public sealed class HospitalAssistantTests
         Assert.Null(execution.FinalOutcome);
         Assert.Empty(await h.Db.AppointmentProposals.ToListAsync());
         var legacy = await h.Workflows.StartForPatientAsync(1, new() { Symptoms = symptoms });
+        if (requestedReview)
+            legacy = (await h.Workflows.SetPatientClinicalReviewChoiceAsync(legacy.WorkflowId, 1, requested: true))!;
         Assert.Equal(legacy.Status, workflow.Status);
         Assert.Equal(legacy.TriageLevel, workflow.TriageLevel);
         Assert.Equal(legacy.RequiresHumanReview, workflow.RequiresHumanReview);
@@ -1054,6 +1058,60 @@ public sealed class HospitalAssistantTests
         var execution = await store.GetAsync(conversation.ExecutionWorkflowId!);
         Assert.Contains(execution!.AuditEvents, e => e.EventType == "AgentDispatched" && e.Description == expectedAgent);
         Assert.Empty(h.Db.Appointments);
+    }
+
+    [Fact]
+    public async Task FullEndToEndFlow_PatientSymptomTriage_DoctorReview_PatientConfirmationAndBooking()
+    {
+        await using var h = await Harness.Create();
+
+        // Step 1: Patient starts triage with a condition requiring clinical review
+        var turn1 = await h.Send("I have cancer");
+        Assert.NotEqual(Guid.Empty, turn1.ConversationId);
+        Assert.Null(turn1.PendingAction); // Consent safety: zero assumption booking
+
+        // Step 2: Patient opts in for clinical review
+        var optIn = await h.Send("yes", turn1.ConversationId);
+        var workflow = (await h.Workflows.GetHistoryForPatientAsync(1)).Single();
+        await AssertReviewParity(h, optIn, workflow, "I have cancer", TriageLevels.ClinicalReview, requestedReview: true);
+
+        // Step 3: Doctor reviews and approves the SafeTriage assessment via Web Review Queue
+        const string clinicianAdvice = "Clinical assessment approved; patient is cleared for routine consultation.";
+        var doctorReviewResult = await h.Workflows.ReviewAsync(
+            workflow.WorkflowId,
+            42,
+            new() { Decision = TriageApprovalStatuses.Approved, FinalResponse = clinicianAdvice }
+        );
+        Assert.NotNull(doctorReviewResult);
+        Assert.Equal(TriageWorkflowStatuses.Completed, doctorReviewResult.Status);
+
+        // Step 4: Patient mobile app refreshes/retrieves conversation -> receives clinical review banner
+        var refreshed = await h.Service.GetAsync(h.Patient.PatientId, turn1.ConversationId, default);
+        Assert.Contains(refreshed.Messages, m => m.Role == "assistant" && m.Text.Contains("Clinical review completed"));
+
+        // Step 5: Patient requests appointment proposal
+        var bookingProposal = await h.Send("Book a cardiologist tomorrow afternoon", turn1.ConversationId);
+        Assert.NotNull(bookingProposal.PendingAction);
+        Assert.Equal("book", bookingProposal.PendingAction.Type);
+        Assert.NotEmpty(bookingProposal.PendingAction.Slots);
+
+        // Step 6: Patient explicitly confirms appointment booking
+        var confirmed = await h.Service.DecideAsync(
+            h.Patient,
+            turn1.ConversationId,
+            h.Confirm(bookingProposal.PendingAction),
+            default
+        );
+        Assert.Equal("COMPLETED", confirmed.State);
+        Assert.Single(confirmed.Appointments);
+        Assert.Equal("Dr. Silva", confirmed.Appointments.Single().DoctorName);
+
+        // Step 7: Verify database state integrity
+        var dbAppointment = await h.Db.Appointments.SingleAsync();
+        Assert.Equal(h.Patient.PatientId, dbAppointment.PatientId);
+        Assert.Equal("Confirmed", dbAppointment.Status);
+        var dbProposal = await h.Db.AppointmentProposals.SingleAsync();
+        Assert.Equal("Booked", dbProposal.Status);
     }
 
     private sealed class SemanticPlanner(string type) : HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator.IPlanningModelClient

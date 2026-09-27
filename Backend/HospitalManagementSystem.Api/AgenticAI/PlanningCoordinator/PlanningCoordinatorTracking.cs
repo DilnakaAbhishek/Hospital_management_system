@@ -25,6 +25,14 @@ public sealed partial class PlanningCoordinatorAgent
             record.Plan = prior.Plan; record.Steps = prior.Steps; record.CurrentAgent = prior.CurrentAgent; record.CurrentStep = prior.CurrentStep;
             record.Status = prior.Status; record.ErrorCode = prior.ErrorCode; record.ErrorSummary = prior.ErrorSummary;
             record.FailedStep = prior.FailedStep; record.FailedAt = prior.FailedAt;
+            record.CompletedStages = prior.CompletedStages;
+        }
+        else if (prior != null && prior.Plan.WorkflowType == record.Plan.WorkflowType && prior.Steps.Count == record.Plan.RequiredSteps.Count)
+        {
+            record.Plan = prior.Plan; record.Steps = prior.Steps; record.CurrentAgent = prior.CurrentAgent; record.CurrentStep = prior.CurrentStep;
+            record.Status = prior.Status; record.ErrorCode = prior.ErrorCode; record.ErrorSummary = prior.ErrorSummary;
+            record.FailedStep = prior.FailedStep; record.FailedAt = prior.FailedAt;
+            record.CompletedStages = prior.CompletedStages;
         }
         else SetSteps(record, record.Plan.RequiredSteps);
         activeExecution = record;

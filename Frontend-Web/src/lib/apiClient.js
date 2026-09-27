@@ -15,6 +15,11 @@ apiClient.interceptors.request.use(
     const token = localStorage.getItem('hms_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+      try {
+        localStorage.setItem('hms_last_activity', Date.now().toString())
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
     }
     return config
   },
@@ -30,6 +35,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('hms_token')
       localStorage.removeItem('hms_user')
+      localStorage.removeItem('hms_last_activity')
       window.location.href = '/login'
     }
     return Promise.reject(error)
