@@ -795,15 +795,18 @@ public sealed class HospitalAssistantTests
         await Assert.ThrowsAsync<ArgumentException>(() => h.Service.MessageAsync(h.Patient, request, default));
     }
 
-    [Fact]
-    public async Task CancellationRequiresReasonSelectionAndApproval()
+    [Theory]
+    [InlineData("I cannot attend because of work")]
+    [InlineData("hospitalized")]
+    [InlineData("I have a cough")]
+    public async Task CancellationRequiresReasonSelectionAndApproval(string reason)
     {
         await using var h = await Harness.Create();
         var search = await h.Send("Book a cardiologist tomorrow");
         var booked = await h.Service.DecideAsync(h.Patient, search.ConversationId, h.Confirm(search.PendingAction!), default);
         var request = await h.Send("Cancel my appointment", search.ConversationId);
         Assert.Null(request.PendingAction);
-        var proposed = await h.Send("I cannot attend because of work", search.ConversationId);
+        var proposed = await h.Send(reason, search.ConversationId);
         Assert.Equal("cancel", proposed.PendingAction!.Type);
         Assert.Equal("Confirmed", (await h.Db.Appointments.SingleAsync()).Status);
         var cancelled = await h.Service.DecideAsync(h.Patient, search.ConversationId, new() {
@@ -811,7 +814,7 @@ public sealed class HospitalAssistantTests
             AppointmentId = booked.Appointments[0].AppointmentId
         }, default);
         Assert.Equal("Cancelled", Assert.Single(cancelled.Appointments).Status);
-        Assert.Equal("I cannot attend because of work", cancelled.Appointments[0].CancellationReason);
+        Assert.Equal(reason, cancelled.Appointments[0].CancellationReason);
     }
 
     [Fact]

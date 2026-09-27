@@ -1480,6 +1480,114 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
     }
   }
 
+  Future<void> _reschedule(Appointment appointment) async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final available = await ApiService.getAvailableAppointmentSlots();
+      if (!mounted) return;
+      final slots = available.where((slot) =>
+          (appointment.doctorId != null
+              ? slot.doctorId == appointment.doctorId
+              : slot.doctorName == appointment.doctorName) &&
+          _sameText(slot.specialty, appointment.specialty) &&
+          slot.doctorTimeSlotId != appointment.doctorTimeSlotId &&
+          slot.isActive && slot.availableCount > 0 &&
+          _isFutureSlot(slot)).toList()
+        ..sort((a, b) => a.startAt.compareTo(b.startAt));
+      String dayOf(DoctorTimeSlot slot) =>
+          DateFormat('yyyy-MM-dd').format(slot.startAt.toLocal());
+      final dates = slots.map(dayOf).toSet().toList();
+      String? selectedDate;
+      int? selectedSlotId;
+      final slotId = await showDialog<int>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, updateDialog) => AlertDialog(
+            title: const Text('Reschedule appointment'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(appointment.patientName),
+                    Text('${appointment.doctorName} · ${appointment.specialty}'),
+                    const SizedBox(height: 12),
+                    const Text('Patient and doctor details are locked. Select another available date and session.'),
+                    const SizedBox(height: 16),
+                    if (slots.isEmpty)
+                      const Text('No other available sessions for this doctor.')
+                    else ...[
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedDate,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Appointment date'),
+                        hint: const Text('Select appointment date'),
+                        items: dates.map((date) => DropdownMenuItem(
+                          value: date,
+                          child: Text(DateFormat('MMM d, yyyy').format(DateTime.parse(date))),
+                        )).toList(),
+                        onChanged: (value) => updateDialog(() {
+                          selectedDate = value;
+                          selectedSlotId = null;
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<int>(
+                        key: ValueKey(selectedDate),
+                        initialValue: selectedSlotId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Appointment session'),
+                        hint: const Text('Select appointment session'),
+                        items: slots.where((slot) => dayOf(slot) == selectedDate)
+                            .map((slot) => DropdownMenuItem(
+                              value: slot.doctorTimeSlotId,
+                              child: Text('${DateFormat('h:mm a').format(slot.startAt.toLocal())} – ${DateFormat('h:mm a').format(slot.endAt.toLocal())}'),
+                            )).toList(),
+                        onChanged: selectedDate == null ? null : (value) =>
+                            updateDialog(() => selectedSlotId = value),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Keep appointment'),
+              ),
+              FilledButton(
+                onPressed: selectedSlotId == null ? null : () =>
+                    Navigator.pop(dialogContext, selectedSlotId),
+                child: const Text('Confirm reschedule'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (slotId == null || !mounted) return;
+      await ApiService.rescheduleAppointment(
+        appointmentId: appointment.appointmentId,
+        doctorTimeSlotId: slotId,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Appointment rescheduled successfully.')),
+      );
+      await _loadAppointments();
+    } catch (e) {
+      if (mounted) setState(() => _error = _friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _cancel(Appointment appointment) async {
     final reason = await _cancelReason();
     if (reason == null) return;
@@ -1649,6 +1757,10 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
                   child: _AppointmentCard(
                     appointment: appointment,
                     compact: showingHistory,
+                    onReschedule: showingHistory || _saving ||
+                            !appointment.startAt.isAfter(DateTime.now())
+                        ? null
+                        : () => _reschedule(appointment),
                     onCancel: showingHistory || _saving
                         ? null
                         : () => _cancel(appointment),
@@ -1688,19 +1800,9 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   void _selectSpecialty(String? specialty) {
     setState(() {
       _selectedSpecialty = specialty;
-      if (_selectedDoctorName != null) {
-        final currentDoctor = _doctors
-            .where((doctor) =>
-                doctor.doctorId == _selectedDoctorId ||
-                doctor.doctorName == _selectedDoctorName)
-            .firstOrNull;
-        if (currentDoctor == null ||
-            !_sameText(currentDoctor.specialty, specialty)) {
-          _selectedDoctorId = null;
-          _selectedDoctorName = null;
-          _selectedSlotId = null;
-        }
-      }
+      _selectedDoctorId = null;
+      _selectedDoctorName = null;
+      _selectedSlotId = null;
     });
   }
 
@@ -1756,8 +1858,12 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
     for (final specialty in loadedSpecializations) {
       if (specialty.trim().isNotEmpty) values.add(specialty.trim());
     }
-    for (final doctor in doctors) {
-      if (doctor.specialty.trim().isNotEmpty) values.add(doctor.specialty);
+    if (values.isEmpty) {
+      for (final doctor in doctors) {
+        if (doctor.specialty.trim().isNotEmpty) {
+          values.add(doctor.specialty.trim());
+        }
+      }
     }
     return values.toList()..sort();
   }
@@ -2086,19 +2192,32 @@ class _BookingFormCard extends StatelessWidget {
               )
             else
               DropdownButtonFormField<String>(
+                key: ValueKey('specialization-$selectedSpecialty'),
                 initialValue: selectedSpecialty,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Specialization'),
-                items: specializations
-                    .map((specialty) => DropdownMenuItem(
-                          value: specialty,
-                          child:
-                              Text(specialty, overflow: TextOverflow.ellipsis),
-                        ))
-                    .toList(),
+                hint: const Text('Select specialization'),
+                decoration: const InputDecoration(
+                  labelText: 'Specialization',
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('Select specialization'),
+                  ),
+                  ...specializations.map((specialty) => DropdownMenuItem(
+                        value: specialty,
+                        child: Text(specialty, overflow: TextOverflow.ellipsis),
+                      )),
+                ],
                 validator: (value) =>
-                    value == null ? 'Choose a specialization.' : null,
-                onChanged: saving ? null : onSpecialtyChanged,
+                    value == null || value.isEmpty
+                        ? 'Choose a specialization.'
+                        : null,
+                onChanged: saving
+                    ? null
+                    : (value) => onSpecialtyChanged(
+                        value == null || value.isEmpty ? null : value),
               ),
             const SizedBox(height: 12),
             if (selectedSpecialty != null && filteredDoctors.isEmpty)
@@ -3157,75 +3276,6 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _FeatureTileData {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color,
-      {this.onTap});
-}
-
-class _FeatureGrid extends StatelessWidget {
-  final List<_FeatureTileData> tiles;
-
-  const _FeatureGrid({required this.tiles});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.06,
-      children: tiles
-          .map((tile) => InkWell(
-                onTap: tile.onTap,
-                borderRadius: BorderRadius.circular(18),
-                child: _FeatureTile(tile: tile),
-              ))
-          .toList(),
-    );
-  }
-}
-
-class _FeatureTile extends StatelessWidget {
-  final _FeatureTileData tile;
-
-  const _FeatureTile({required this.tile});
-
-  @override
-  Widget build(BuildContext context) {
-    return _SurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            backgroundColor: tile.color.withValues(alpha: 0.12),
-            child: Icon(tile.icon, color: tile.color, size: 20),
-          ),
-          const Spacer(),
-          Text(tile.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 2),
-          Text(tile.subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppColors.textMutedLight, fontSize: 11)),
-        ],
-      ),
-    );
-  }
-}
-
 class _SurfaceCard extends StatelessWidget {
   final Widget child;
 
@@ -3301,11 +3351,13 @@ class _AppointmentCard extends StatelessWidget {
   final Appointment appointment;
   final bool compact;
   final VoidCallback? onCancel;
+  final VoidCallback? onReschedule;
 
   const _AppointmentCard({
     required this.appointment,
     this.compact = false,
     this.onCancel,
+    this.onReschedule,
   });
 
   @override
@@ -3416,12 +3468,28 @@ class _AppointmentCard extends StatelessWidget {
                       value: _formatFee(appointment.consultationFee))),
             ],
           ),
-          if (onCancel != null) ...[
+          if (onReschedule != null || onCancel != null) ...[
             const SizedBox(height: 12),
-            _OutlineAction(
-              label: 'Cancel',
-              danger: true,
-              onTap: onCancel,
+            Row(
+              children: [
+                if (onReschedule != null)
+                  Expanded(
+                    child: _OutlineAction(
+                      label: 'Reschedule',
+                      onTap: onReschedule,
+                    ),
+                  ),
+                if (onReschedule != null && onCancel != null)
+                  const SizedBox(width: 12),
+                if (onCancel != null)
+                  Expanded(
+                    child: _OutlineAction(
+                      label: 'Cancel',
+                      danger: true,
+                      onTap: onCancel,
+                    ),
+                  ),
+              ],
             ),
           ],
         ],

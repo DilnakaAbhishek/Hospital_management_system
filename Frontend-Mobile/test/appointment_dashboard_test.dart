@@ -123,13 +123,47 @@ void main() {
     expect(find.text('Appointment cancelled.'), findsOneWidget);
   });
 
-  testWidgets('appointment card shows session time and cancellation only', (tester) async {
-    await pumpAppointmentsDashboard(tester);
-    expect(find.text('Appointment time'), findsWidgets);
+  testWidgets('appointment card offers rescheduling for future appointments', (tester) async {
+    await pumpAppointmentsDashboard(tester, rescheduleFixture: true);
     expect(find.text('Estimated time'), findsNothing);
-    expect(find.text('Reschedule'), findsNothing);
+    expect(find.text('Reschedule'), findsOneWidget);
     expect(find.text('Upcoming'), findsNothing);
     expect(find.text('Cancel'), findsWidgets);
+  });
+
+  testWidgets('rescheduling keeps the doctor and posts the selected session', (tester) async {
+    final requests = <http.Request>[];
+    await pumpAppointmentsDashboard(tester,
+        requests: requests, rescheduleFixture: true);
+    await tester.ensureVisible(find.text('Reschedule'));
+    await tester.tap(find.text('Reschedule'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dr. Ada Lovelace · Cardiology'), findsOneWidget);
+    expect(tester.widget<FilledButton>(find.widgetWithText(
+        FilledButton, 'Confirm reschedule')).onPressed, isNull);
+    final dateFinder = find.byType(DropdownButtonFormField<String>);
+    final dateField = tester.widget<DropdownButton<String>>(find.descendant(
+        of: dateFinder, matching: find.byType(DropdownButton<String>)));
+    final dateLabel = (dateField.items!.single.child as Text).data!;
+    await tester.tap(dateFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(dateLabel).last);
+    await tester.pumpAndSettle();
+    final sessionFinder = find.byType(DropdownButtonFormField<int>);
+    final sessionField = tester.widget<DropdownButton<int>>(find.descendant(
+        of: sessionFinder, matching: find.byType(DropdownButton<int>)));
+    expect(sessionField.items!.map((item) => item.value), [13]);
+    final sessionLabel = (sessionField.items!.single.child as Text).data!;
+    await tester.tap(sessionFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(sessionLabel).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm reschedule'));
+    await tester.pumpAndSettle();
+    final request = requests.singleWhere((request) =>
+        request.method == 'POST' && request.url.path.endsWith('/10/reschedule'));
+    expect(jsonDecode(request.body), {'doctorTimeSlotId': 13});
+    expect(find.text('Appointment rescheduled successfully.'), findsOneWidget);
   });
 
   testWidgets('appointment API failures show a retryable error state',
@@ -146,7 +180,20 @@ Future<void> pumpAppointmentsDashboard(
   List<http.Request>? requests,
   bool failAppointments = false,
   String title = 'Appointments',
+  bool rescheduleFixture = false,
 }) async {
+  final future = DateTime.now().toUtc().add(const Duration(days: 30));
+  final appointments = appointmentJson();
+  final slots = slotJson();
+  if (rescheduleFixture) {
+    appointments.first['startAt'] = future.toIso8601String();
+    appointments.first['endAt'] = future.add(const Duration(hours: 1)).toIso8601String();
+    for (final slot in slots) {
+      slot['startAt'] = future.toIso8601String();
+      slot['endAt'] = future.add(const Duration(hours: 1)).toIso8601String();
+    }
+    slots.add({...slots.first, 'doctorTimeSlotId': 13});
+  }
   SharedPreferences.setMockInitialValues({
     'patient_full_name': 'Amal Perera',
     'patient_email': 'amal.perera@email.com',
@@ -163,12 +210,12 @@ Future<void> pumpAppointmentsDashboard(
     }
 
     if (request.method == 'GET' && request.url.path == '/api/appointment') {
-      return jsonResponse({'data': appointmentJson()});
+      return jsonResponse({'data': appointments});
     }
 
     if (request.method == 'GET' &&
         request.url.path == '/api/appointment/available-slots') {
-      return jsonResponse(slotJson());
+      return jsonResponse(slots);
     }
 
     if (request.method == 'GET' &&
@@ -192,8 +239,7 @@ Future<void> pumpAppointmentsDashboard(
         request.url.path == '/api/appointment/10/reschedule') {
       return jsonResponse({
         ...appointmentJson().first,
-        'doctorTimeSlotId': 12,
-        'doctorName': 'Dr. Alan Turing',
+        'doctorTimeSlotId': jsonDecode(request.body)['doctorTimeSlotId'],
         'status': 'Confirmed',
       });
     }
