@@ -89,11 +89,18 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (request.Vitals is null) missingInformation.Add("No verified vital signs were supplied.");
         if (run.Context.FailedSafely)
         {
+            var requiresReview = validationProblems.Any(p =>
+                p.Contains("Heart rate", StringComparison.OrdinalIgnoreCase) ||
+                p.Contains("Temperature", StringComparison.OrdinalIgnoreCase) ||
+                p.Contains("Blood pressure", StringComparison.OrdinalIgnoreCase) ||
+                p.Contains("Oxygen", StringComparison.OrdinalIgnoreCase) ||
+                p.Contains("instructions", StringComparison.OrdinalIgnoreCase) ||
+                p.Contains("suspicious", StringComparison.OrdinalIgnoreCase));
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
-            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+            workflow.ApprovalStatus = requiresReview ? TriageApprovalStatuses.Pending : TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
-            workflow.RequiresHumanReview = false;
+            workflow.RequiresHumanReview = requiresReview;
             workflow.ErrorCode = run.Trace.LastOrDefault(e => e.ErrorCode != null)?.ErrorCode ?? "InvalidOrSuspiciousInput";
             workflow.FinalOutcome = "We could not complete this assessment safely. Please correct the information or try again shortly; seek urgent care if symptoms are severe or worsening.";
             missingInformation.AddRange(validationProblems);
@@ -477,12 +484,14 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         workflow.Status = decision == TriageApprovalStatuses.RevisionRequested ? TriageWorkflowStatuses.PendingClinicalReview : TriageWorkflowStatuses.Completed;
         workflow.FinalOutcome = decision switch
         {
-            TriageApprovalStatuses.Approved => patientFacingResponse ?? suggestion,
+            TriageApprovalStatuses.Approved => suggestion ?? patientFacingResponse,
             "ClinicianResponse" => request.FinalResponse!.Trim(),
-            TriageApprovalStatuses.Rejected => "A clinical reviewer did not approve the proposed escalation. Contact the care team for further guidance.",
+            TriageApprovalStatuses.Rejected => !string.IsNullOrWhiteSpace(patientFacingResponse)
+                ? patientFacingResponse
+                : "A clinical reviewer did not approve the proposed escalation. Contact the care team for further guidance.",
             _ => "A clinical reviewer requested additional information before a decision can be made."
         };
-        if (decision is TriageApprovalStatuses.Approved or "ClinicianResponse")
+        if (decision is TriageApprovalStatuses.Approved or "ClinicianResponse" or TriageApprovalStatuses.Rejected)
         {
             assessment["safeTriageSuggestion"] = suggestion;
             assessment["reviewedResponse"] = workflow.FinalOutcome;
@@ -632,7 +641,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             // Present exactly one active clinical question per turn. The adaptive
             // planner may rank several relevant needs, but a question is counted
             // only when it is actually issued to the patient.
-            guidance.FollowUpItems = questions.Take(4).ToList();
+            guidance.FollowUpItems = questions.Take(1).ToList();
             guidance.FollowUpQuestions = guidance.FollowUpItems.Select(question => question.Prompt).ToList();
         }
         if (guidance is not null)
@@ -767,17 +776,15 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             }
             else if (extractionFailed || context.Requirements.Any(r => r.State is SafeTriageRequirementState.Missing or SafeTriageRequirementState.Declined or SafeTriageRequirementState.Unknown))
             {
-                // The patient may opt into review when the safe question budget is
-                // exhausted; a technical extraction failure remains FailedSafely.
-                workflow.Status = extractionFailed ? TriageWorkflowStatuses.FailedSafely : TriageWorkflowStatuses.Completed;
-                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
-                workflow.RequiresHumanReview = false;
+                workflow.Status = extractionFailed ? TriageWorkflowStatuses.FailedSafely : TriageWorkflowStatuses.PendingClinicalReview;
+                workflow.ApprovalStatus = extractionFailed ? TriageApprovalStatuses.NotRequired : TriageApprovalStatuses.Pending;
+                workflow.RequiresHumanReview = !extractionFailed;
                 workflow.TriageLevel = TriageLevels.ClinicalReview;
-                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.UncertaintyState = extractionFailed ? TriageUncertaintyStates.LimitedInformation : TriageUncertaintyStates.HumanReviewRequired;
                 workflow.ErrorCode ??= extractionFailed ? context.Extraction?.ErrorCode ?? "ExtractionUnavailable" : "FollowUpInformationUnavailable";
                 workflow.FinalOutcome = extractionFailed
                     ? "We could not complete this assessment safely. Please try again shortly; seek urgent care if symptoms are severe or worsening."
-                    : "The assessment still needs information, but no further SafeTriage question can be issued. You can ask for Clinical Review if you would like a clinician to review this assessment.";
+                    : "Your assessment has been sent for clinical review.";
             }
             else
             {

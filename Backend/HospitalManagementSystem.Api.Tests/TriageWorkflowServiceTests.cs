@@ -411,12 +411,9 @@ public class TriageWorkflowServiceTests
         Assert.Equal(1, extractionEvent.RetryCount);
         Assert.Equal("ExtractionUnavailable", extractionEvent.ErrorCode);
         Assert.False(result.RequiresHumanReview);
-        Assert.Equal(TriageWorkflowStatuses.Completed, result.Status);
-        Assert.Equal(TriageLevels.NonUrgent, result.TriageLevel);
-        Assert.NotNull(result.Guidance);
-        Assert.Contains("temporarily unavailable", result.Guidance!.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.NotEmpty(result.Guidance.Actions);
-        Assert.NotEmpty(result.Guidance.SeekHelpIf);
+        Assert.Equal(TriageWorkflowStatuses.FailedSafely, result.Status);
+        Assert.Equal(TriageLevels.InsufficientInformation, result.TriageLevel);
+        Assert.Contains("try again", result.PatientMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

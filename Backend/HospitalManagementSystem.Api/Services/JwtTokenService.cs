@@ -18,8 +18,10 @@ public class JwtTokenService : IJwtTokenService
         if (secret.Length < 32)
             throw new InvalidOperationException("JWT secret must contain at least 32 characters.");
 
-        // Keep clinical-system sessions short when used on shared devices.
-        var expiresAt = DateTime.UtcNow.AddMinutes(30);
+        // In clinical systems, active workstations keep valid session across a shift (default 8 hours),
+        // while client-side inactivity timers guard against unattended terminals.
+        var expiryHours = int.TryParse(_configuration["Jwt:ExpiryHours"], out var h) && h > 0 ? h : 8;
+        var expiresAt = DateTime.UtcNow.AddHours(expiryHours);
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),

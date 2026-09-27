@@ -93,6 +93,7 @@ namespace HospitalManagementSystem.Api.Controllers
             var query = _db.AppointmentNotifications.AsNoTracking()
                 .Include(n => n.Appointment)
                     .ThenInclude(a => a.DoctorTimeSlot)
+                .Where(n => !n.Message.ToLower().Contains("rescheduled"))
                 .AsQueryable();
 
             if (User.IsInRole("Doctor"))

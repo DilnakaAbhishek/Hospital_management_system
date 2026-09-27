@@ -146,14 +146,24 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
                 Description = "Gemini model failed or returned malformed JSON; deterministic safety fallback engaged.",
                 Metadata = "ModelUnavailable"
             });
-            rawDecision = DeterministicRuleBasedFallback(objective, request);
+            rawDecision = DeterministicRuleBasedFallback(objective, request, previous);
         }
 
         // 3. Post-process, sanitize, and strictly enforce hospital safety rules
         var plan = BuildAndSanitizePlan(rawDecision, objective, request, workflowRecord);
 
         workflowRecord.Plan = plan;
-        SetSteps(workflowRecord, plan.RequiredSteps);
+        if (previous != null && previous.Plan?.WorkflowType == plan.WorkflowType && previous.Steps.Count == plan.RequiredSteps.Count)
+        {
+            workflowRecord.Steps = previous.Steps;
+            workflowRecord.CurrentAgent = previous.CurrentAgent;
+            workflowRecord.CurrentStep = previous.CurrentStep;
+            workflowRecord.CompletedStages = previous.CompletedStages;
+        }
+        else
+        {
+            SetSteps(workflowRecord, plan.RequiredSteps);
+        }
         workflowRecord.Status = plan.WorkflowType == PlanningWorkflowType.Unsupported.ToString()
             ? "Unsupported"
             : "Planned";
@@ -418,7 +428,7 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         return "I could not generate the requested general health information right now. Please try again shortly. If this relates to symptoms, an injury, or a possible exposure affecting you, describe what happened and when so the safety-triage workflow can assess it.";
     }
 
-    private static GeminiPlanningDecision DeterministicRuleBasedFallback(string objective, PlanningRequestDto request)
+    private static GeminiPlanningDecision DeterministicRuleBasedFallback(string objective, PlanningRequestDto request, PlanningWorkflowRecord? previous = null)
     {
         var lower = objective.ToLowerInvariant();
 
@@ -487,6 +497,23 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
                 FollowUpQuestions = ["Do you have a preferred doctor or medical specialty?"],
                 Rationale = "User requested to book or explore appointment options.",
                 SafeResponse = "I can help search for available doctors and appointment slots."
+            };
+        }
+
+        // Maintain active in-flight workflow when the patient provides a follow-up answer or clinical choice
+        if (previous != null && Enum.TryParse<PlanningWorkflowType>(previous.Plan?.WorkflowType, out var prevType) &&
+            prevType != PlanningWorkflowType.Unsupported &&
+            previous.Status is not ("Completed" or "Cancelled" or "FailedSafely"))
+        {
+            return new GeminiPlanningDecision
+            {
+                WorkflowType = prevType.ToString(),
+                AppointmentRequested = previous.Plan.AppointmentRequested,
+                PatientConfirmationRequired = previous.Plan.PatientConfirmationRequired,
+                RequiredSteps = [.. previous.Plan.RequiredSteps],
+                FollowUpQuestions = [],
+                Rationale = $"Continuing active in-flight workflow: {prevType}.",
+                SafeResponse = previous.Plan.SafeResponse
             };
         }
 

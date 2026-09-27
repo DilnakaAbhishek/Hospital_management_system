@@ -27,8 +27,11 @@ const PAGE_TITLES = {
   '/doctors':         { title: 'Doctors',         subtitle: 'Medical staff directory' },
   '/appointments':    { title: 'Appointments',    subtitle: 'Schedule & manage visits' },
   '/medical-records': { title: 'Medical Records', subtitle: 'Manage patient EHR & clinical diagnostics' },
+  '/triage':          { title: 'SafeTriage Review Queue', subtitle: 'Review and approve AI-triaged patient assessments' },
+  '/triage/review':   { title: 'SafeTriage Review Queue', subtitle: 'Review and approve AI-triaged patient assessments' },
   '/settings':        { title: 'Settings',        subtitle: 'System configuration' },
   '/admin':           { title: 'Available Rooms', subtitle: 'Manage hospital room availability' },
+  '/admin/rooms':     { title: 'Available Rooms', subtitle: 'Manage hospital room availability' },
 }
 
 const notificationReadKey = (userId) => `hms_read_notifications_${userId || 'current'}`
@@ -236,12 +239,25 @@ export default function DashboardLayout() {
               const msg = item.message || ''
               let apptTitle = 'Appointment Update'
               const lower = msg.toLowerCase()
+              const isBooking = lower.includes('new appointment') || lower.includes('booked')
+
+              const isReschedule = lower.includes('reschedul')
+
+              // In clinical practice, routine appointment bookings should not generate bell notifications
+              // for any user (Doctor, Admin, or Patient) to avoid alert fatigue; bookings are viewed in schedules.
+              if (isBooking) {
+                return
+              }
+
+              // Rescheduled notifications are strictly for the patient side (not for doctors or admins)
+              if (user.role?.toLowerCase() !== 'patient' && isReschedule) {
+                return
+              }
+
               if (lower.includes('cancel')) {
                 apptTitle = 'Appointment Cancelled'
-              } else if (lower.includes('reschedul')) {
+              } else if (isReschedule) {
                 apptTitle = 'Appointment Rescheduled'
-              } else if (lower.includes('new appointment') || lower.includes('booked')) {
-                apptTitle = 'New Appointment Booking'
               }
 
               items.push({

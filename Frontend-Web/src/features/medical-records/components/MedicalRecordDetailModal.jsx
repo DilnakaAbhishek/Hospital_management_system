@@ -5,7 +5,6 @@ import {
   Stethoscope,
   FileText,
   Paperclip,
-  ExternalLink,
   Activity,
   Pill,
   FlaskConical,
@@ -397,24 +396,6 @@ export default function MedicalRecordDetailModal({
                         >
                           Download
                         </Button>
-                        <button
-                          type="button"
-                          onClick={() => window.open(fullUrl, '_blank')}
-                          className="mr-link-btn"
-                          title="Open original file in new browser tab"
-                          style={{
-                            padding: '7px 9px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-default)',
-                            background: 'var(--bg-surface)',
-                            cursor: 'pointer',
-                            color: 'var(--text-muted)',
-                            display: 'flex',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <ExternalLink size={15} />
-                        </button>
                       </div>
                     </div>
                   )
@@ -530,15 +511,6 @@ export default function MedicalRecordDetailModal({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={ExternalLink}
-                      onClick={() => window.open(getFullAttachmentUrl(previewAttachment.fileUrl), '_blank')}
-                      title="Open full image in new tab"
-                    >
-                      New Tab
-                    </Button>
                     <Button
                       variant="primary"
                       size="sm"
@@ -692,20 +664,6 @@ export default function MedicalRecordDetailModal({
               /* PDF embedded iframe viewer */
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={ExternalLink}
-                    onClick={() => {
-                      const cached =
-                        typeof window !== 'undefined'
-                          ? sessionStorage.getItem(`med_preview_${previewAttachment.fileName}`)
-                          : null
-                      window.open(cached || getFullAttachmentUrl(previewAttachment.fileUrl), '_blank')
-                    }}
-                  >
-                    Open in New Tab
-                  </Button>
                   <Button
                     variant="primary"
                     size="sm"

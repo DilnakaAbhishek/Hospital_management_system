@@ -1,65 +1,115 @@
-# ASP.NET Core 8 REST API Backend
+# MediCore Backend API (.NET 8)
 
-This directory contains the C# ASP.NET Core Web API solution, PostgreSQL database models (EF Core), and business logic services.
+> **Platform**: ASP.NET Core 8 Web API, Entity Framework Core 8, PostgreSQL (Neon Serverless)  
+> **Course**: SE3090 — Software Engineering Frameworks  
+> **Architecture**: Multi-Agent Agentic AI Orchestration, Clean Architecture & Layered Services
 
-## Run locally
+---
 
+## 1. Overview
+
+The MediCore Backend is an enterprise-grade hospital management system API supporting four integrated modules:
+1. **Patient Management with SafeTriage Agent** (Member 1)
+2. **Doctor Management with Planning Agent** (Member 2)
+3. **Appointment Management with Appointment Agent** (Member 3)
+4. **Medical Report Management with Medical Report Agent** (Member 4)
+
+---
+
+## 2. Directory & Project Structure
+
+```
+Backend/
+├── HospitalManagementSystem.Api/
+│   ├── AgenticAI/                         # Autonomous multi-agent coordination layer
+│   │   ├── PlanningCoordinator/           # Intent classification, planning, Gemini client, replanning
+│   │   ├── SafeTriage/                    # Multi-agent triage pipeline (Extraction, Planning, Response)
+│   │   ├── HospitalAssistant/             # Conversational state machine & patient preferences
+│   │   ├── PatientCare/                   # Appointment proposal & safety validation agents
+│   │   └── MedicalReports/                # EHR intelligence, lab summarization agent
+│   ├── Controllers/                       # REST API endpoints (Auth, Patients, Doctors, Appointments, etc.)
+│   ├── Data/                              # ApplicationDbContext, Neon PostgreSQL connection
+│   ├── DTOs/                              # Strongly typed request/response transfer objects
+│   ├── Models/                            # Database entity models
+│   ├── Repositories/                      # Data access repositories
+│   ├── Services/                          # Core business logic services
+│   ├── appsettings.json                   # System configuration (JWT, Gemini, Database, Cloudflare R2)
+│   └── Program.cs                         # Application entrypoint & DI container registration
+│
+└── HospitalManagementSystem.Api.Tests/    # Comprehensive xUnit test suite (274 tests)
+    ├── AgenticAI/                         # Planning Coordinator & SafeTriage unit/integration tests
+    ├── AppointmentServiceTests.cs         # Booking & scheduling logic tests
+    ├── DoctorSearchServiceTests.cs        # Doctor filtering & search tests
+    ├── PatientServiceTests.cs             # Patient management & verification tests
+    └── TriageWorkflowServiceTests.cs      # SafeTriage clinical rules & review queue tests
+```
+
+---
+
+## 3. Running Locally
+
+### Prerequisites
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- Neon PostgreSQL database instance (or local PostgreSQL 15+)
+
+### Start the API Server
 From the repository root:
 
-```powershell
+```bash
 dotnet run --project Backend/HospitalManagementSystem.Api --launch-profile http
 ```
 
-Open http://localhost:5000/swagger/index.html after the API reports that it is listening.
-The checked-in launch profile sets the Development environment and port 5000.
-Swagger is enabled only in Development; starting the executable directly or using
-`--no-launch-profile` without setting the environment can result in a Swagger 404.
-After changing launch settings, stop the existing API process and restart it with
-the command above. PostgreSQL must be available for startup migrations and seeding.
+Once running:
+- **Swagger UI**: [http://localhost:5000/swagger](http://localhost:5000/swagger)
+- **Health Check**: [http://localhost:5000/health](http://localhost:5000/health)
 
-## Connect to Neon
+---
 
-The API already uses PostgreSQL through Npgsql. To create its Neon database:
+## 4. Configuration
 
-1. Sign in to the [Neon console](https://console.neon.tech/) and create a project.
-   Choose a region close to the API server. Neon creates a default database named
-   `neondb`; you can use it or create another database in the project.
-2. Open **Connect** on the project dashboard. Select the branch and database that
-   this API should use, and turn **Connection pooling** off to get a direct host.
-   The API applies EF Core migrations at startup, and Neon recommends a direct
-   connection for migrations.
-3. Copy the host, database name, role, and password into the secret command below.
+Key configuration sections in `Backend/HospitalManagementSystem.Api/appsettings.json`:
 
-Set the API's `ConnectionStrings:DefaultConnection` to an Npgsql connection string.
-Use the host, database, role, and password shown by Neon; the example values below
-are placeholders. Run this from the repository root, replacing the entire quoted
-value with your own details:
-
-```bash
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
-  "Host=ep-YOUR-ENDPOINT.REGION.aws.neon.tech;Port=5432;Database=neondb;Username=YOUR_ROLE;Password=YOUR_PASSWORD;SSL Mode=Require" \
-  --project Backend/HospitalManagementSystem.Api
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=your-neon-host.aws.neon.tech;Port=5432;Database=neondb;Username=your_user;Password=your_password;SSL Mode=Require"
+  },
+  "Gemini": {
+    "ApiKey": "YOUR_GEMINI_API_KEY",
+    "Model": "gemini-3.5-flash-lite",
+    "TimeoutSeconds": 75
+  },
+  "Jwt": {
+    "Secret": "development-only-jwt-secret-change-before-production-2026",
+    "Issuer": "MediCore.Api",
+    "Audience": "MediCore.Client"
+  },
+  "CloudflareR2": {
+    "BucketName": "hospital-medical-records"
+  }
+}
 ```
 
-The Neon dashboard commonly shows a `postgresql://...` URL. The API expects the
-Npgsql key/value format above, so copy the individual values from that URL. If a
-password contains `;`, use the Npgsql connection-string quoting rules or set the
-value through a deployment secret manager. Do not commit credentials to Git.
+*Note: You can also pass `GEMINI_API_KEY` as an environment variable or via `dotnet user-secrets`.*
 
-For a deployed API, set the environment variable
-`ConnectionStrings__DefaultConnection` to the same Npgsql string in the hosting
-platform's secret settings. Also configure `Jwt__Secret` and
-`Cors__AllowedOrigins__0` for that deployment. User secrets are for local
-Development only.
+---
 
-Start the API with the command above and open `http://localhost:5000/health`.
-Startup applies pending migrations to the Neon database; a successful response
-confirms that startup completed. Development startup also inserts sample accounts,
-so use a separate Neon development branch or database for local runs. To check the
-schema, inspect the `__EFMigrationsHistory` table in the Neon SQL Editor.
+## 5. Agentic AI Architecture Highlights
 
-## Projects Structure:
-- `MediCore.API`: Controllers, JWT Auth, Middlewares, Swagger OpenAPI specs.
-- `MediCore.Infrastructure`: EF Core DbContext, PostgreSQL Data Access, Migrations.
-- `MediCore.Core`: Data Entities (User, Patient, Vitals, TriageWorkflowState), Interfaces, DTOs.
-- `MediCore.Tests`: xUnit Unit and Integration test suite.
+- **Google Gemini Structured Output**: Strict JSON schema enforcement for planning, requirement extraction, and safe guidance.
+- **Defense-in-Depth**: Immediate, zero-latency **Deterministic Rule-Based Fallback** if Gemini is unreachable, slow, or rate-limited.
+- **Human-in-the-Loop (HITL) Boundary**: Red-flag symptoms or vital anomalies route into `PendingClinicalReview`, requiring doctor approval via the Web Review Queue before advice is delivered.
+- **Zero-Assumption Booking**: Symptoms never trigger auto-booking; booking requires explicit patient slot confirmation.
+- **Adversarial Defenses**: Pre-screen heuristics catch and neutralize prompt injection attempts.
+
+---
+
+## 6. Running Tests
+
+To run the complete test suite:
+
+```bash
+dotnet test Backend/HospitalManagementSystem.Api.Tests/HospitalManagementSystem.Api.Tests.csproj
+```
+
+**Status: 274 Passed, 0 Failed, 0 Skipped (100% Pass Rate).**

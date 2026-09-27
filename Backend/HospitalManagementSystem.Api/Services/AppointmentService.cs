@@ -86,12 +86,20 @@ namespace HospitalManagementSystem.Api.Services
 
             var previousStatus = appointment.Status;
             var previousSlotId = appointment.DoctorTimeSlotId;
+            var previousNumber = appointment.AppointmentNumber;
 
             if (appointment.DoctorTimeSlotId != dto.DoctorTimeSlotId)
             {
                 var slot = await ValidateSlotCapacityAsync(dto.DoctorTimeSlotId, id);
                 var appointmentNumber = await GetNextAppointmentNumberAsync(slot, id);
                 appointment.AppointmentNumber = appointmentNumber;
+
+                var localTime = TimeZoneInfo.ConvertTimeFromUtc(slot.StartAt,
+                    TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo"));
+                appointment.Notifications.Add(new AppointmentNotification
+                {
+                    Message = $"Your appointment (previously #{previousNumber}) with {slot.DoctorName} was rescheduled. New appointment number: #{appointmentNumber}. New appointment time: {localTime:dd MMM yyyy, hh:mm tt} (Sri Lanka time)."
+                });
             }
 
             appointment.DoctorTimeSlotId = dto.DoctorTimeSlotId;
@@ -143,6 +151,7 @@ namespace HospitalManagementSystem.Api.Services
 
             var slot = await ValidateSlotCapacityAsync(doctorTimeSlotId, id);
             var notify = appointment.DoctorTimeSlotId != doctorTimeSlotId;
+            var previousNumber = appointment.AppointmentNumber;
             var appointmentNumber = await GetNextAppointmentNumberAsync(slot, id);
             appointment.DoctorTimeSlotId = doctorTimeSlotId;
             appointment.AppointmentNumber = appointmentNumber;
@@ -153,7 +162,7 @@ namespace HospitalManagementSystem.Api.Services
                     TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo"));
                 appointment.Notifications.Add(new AppointmentNotification
                 {
-                    Message = $"Appointment #{appointmentNumber} with {slot.DoctorName} was rescheduled. New appointment time: {localTime:dd MMM yyyy, hh:mm tt} (Sri Lanka time)."
+                    Message = $"Your appointment (previously #{previousNumber}) with {slot.DoctorName} was rescheduled. New appointment number: #{appointmentNumber}. New appointment time: {localTime:dd MMM yyyy, hh:mm tt} (Sri Lanka time)."
                 });
             }
             var saved = await _repository.UpdateAsync(appointment);
