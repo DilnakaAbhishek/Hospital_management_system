@@ -318,6 +318,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(posts.length, 1);
     expect(posts.single.url.path, '/api/hospital-assistant/messages');
+    expect(find.text('Next available booking No: 8'), findsOneWidget);
     expect(tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Confirm appointment')).onPressed,
         isNotNull);

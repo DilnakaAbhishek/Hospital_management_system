@@ -127,7 +127,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
 
   Future<void> _pickAndUploadPdf() async {
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         withData: true,

@@ -342,7 +342,7 @@ public sealed partial class PlanningCoordinatorAgent
             await StartClinicalAsync(patient, state, text, token);
             return;
         }
-        if (informationQuestion && state.Awaiting != "clinical-answer")
+        if (informationQuestion && state.Awaiting is not ("clinical-answer" or "cancellation-reason"))
         {
             // Informational questions do not create or continue a triage workflow.
             // Explicit red flags above retain priority over this branch.
@@ -393,6 +393,16 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (state.PendingAction != null && Has(text, @"^(yes|okay|ok|confirm( this appointment)?|select this|book it|that looks good|go ahead|do it)[.! ]*$"))
         { Reply(state, "Choose your appointment below, then use the confirmation button to finish.", "WAITING_FOR_HUMAN_APPROVAL"); return; }
+        // A reply to the cancellation-reason prompt belongs to that task, even
+        // when it mentions illness. Explicit red flags and dismissal above still win.
+        if (state.Awaiting == "cancellation-reason")
+        {
+            if (text.Length is < 3 or > 500) { Reply(state, "Please give a cancellation reason between 3 and 500 characters.", "GATHERING_INFORMATION"); return; }
+            state.CancellationReason = text;
+            state.Awaiting = null;
+            await CancellationAsync(patient, state, token);
+            return;
+        }
         await CheckPatientSafetyAsync(patient.PatientId, state);
         // --- FailedSafely Self-Retry ---
         // If the patient is stuck on a FailedSafely block (technical failure, not a medical danger)
@@ -621,14 +631,6 @@ public sealed partial class PlanningCoordinatorAgent
                 await ReplySafetyBlockedAsync(patient.PatientId, state);
                 return;
             }
-        }
-        if (state.Awaiting == "cancellation-reason")
-        {
-            if (text.Length is < 3 or > 500) { Reply(state, "Please give a cancellation reason between 3 and 500 characters.", "GATHERING_INFORMATION"); return; }
-            state.CancellationReason = text;
-            state.Awaiting = null;
-            await CancellationAsync(patient, state, token);
-            return;
         }
         // An explicit appointment action can mention a medical report or follow-up.
         // It must remain in the appointment workflow; otherwise the read-only

@@ -948,7 +948,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                     'This option has expired. Choose another to search again.'),
               if (isSlotAction)
                 const Text(
-                    'The appointment number is assigned when booking is confirmed. '
+                    'The next available booking number may change before confirmation. '
+                    'The final number is assigned when booking is confirmed. '
                     'Options are not reserved.',
                     style: TextStyle(fontSize: 12)),
               const SizedBox(height: 12),
@@ -1067,10 +1068,12 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       const SizedBox(height: 6),
       Text(_date(item['startAt'])),
       Text(_timeRange(item['startAt'], item['endAt'])),
-      if (!isSlot && number is num && number > 0)
+      if (number is num && number > 0)
         Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Text('Appointment No: $number',
+          child: Text(isSlot
+                  ? 'Next available booking No: $number'
+                  : 'Appointment No: $number',
               style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
       if (location.isNotEmpty) Text(location),
