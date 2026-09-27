@@ -451,15 +451,7 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (state.Awaiting == "clinical-review-choice" && state.WorkflowId.HasValue)
         {
-            if (Has(text, @"^(yes|y|please|request (?:a )?clinical review|1|fastest|next available|next)[.! ]*$"))
-            {
-                var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: true);
-                if (workflow is null) throw new InvalidOperationException("The optional clinical-review request is no longer available.");
-                ApplyWorkflow(state, workflow);
-                ClinicalReply(state, workflow);
-                return;
-            }
-            if (Has(text, @"^(no|n|no thanks|not now|3|cancel|decline)[.! ]*$"))
+            if (Has(text, @"^(no|n|no thanks|not now|2|3|cancel|decline|monitor)[.! ]*$"))
             {
                 var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: false);
                 if (workflow is null) throw new InvalidOperationException("The optional clinical-review choice is no longer available.");
@@ -468,10 +460,19 @@ public sealed partial class PlanningCoordinatorAgent
                 return;
             }
 
+            if (Has(text, @"^(yes|y|please|request (?:a )?clinical review)[.! ]*$"))
+            {
+                var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: true);
+                if (workflow is null) throw new InvalidOperationException("The optional clinical-review request is no longer available.");
+                ApplyWorkflow(state, workflow);
+                ClinicalReply(state, workflow);
+                return;
+            }
+
             var query = text.Trim();
 
-            // If user typed '2' or 'doctor' without specifying a name, list approved specialists
-            if (Has(query, @"^(2|doctor|select doctor|choose doctor|specialist|specialists)[.! ]*$"))
+            // If user typed '1', 'doctor', or asked to choose a doctor without specifying a name, list approved specialists
+            if (Has(query, @"^(1|doctor|select doctor|choose doctor|specialist|specialists)[.! ]*$"))
             {
                 var approvedDocs = await db.Doctors.AsNoTracking()
                     .Where(d => d.RegistrationStatus == DoctorRegistrationStatuses.Approved)
@@ -479,18 +480,20 @@ public sealed partial class PlanningCoordinatorAgent
                     .Take(5)
                     .ToListAsync();
                 var docListText = string.Join("\n", approvedDocs.Select(d => $"• Dr. {d.FirstName} {d.LastName} ({d.Specialization})"));
-                Reply(state, $"Please reply with the name of your preferred doctor or specialty:\n\n{docListText}\n\nOr reply '1' for the next available on-duty doctor.", "GATHERING_INFORMATION");
+                Reply(state, $"Please reply with the name of your preferred doctor or specialty:\n\n{docListText}", "GATHERING_INFORMATION");
                 return;
             }
 
             // Check if patient provided a doctor name or specialty
-            var searchClean = query.Replace("Dr.", "").Replace("Dr", "").Trim();
-            var matchedDoctor = await db.Doctors.AsNoTracking()
-                .Where(d => d.RegistrationStatus == DoctorRegistrationStatuses.Approved &&
-                    (EF.Functions.ILike(d.FirstName, $"%{searchClean}%") ||
-                     EF.Functions.ILike(d.LastName, $"%{searchClean}%") ||
-                     EF.Functions.ILike(d.Specialization, $"%{searchClean}%")))
-                .FirstOrDefaultAsync();
+            var searchClean = query.Replace("Dr.", "").Replace("Dr", "").Trim().ToLowerInvariant();
+            var approvedDoctors = await db.Doctors.AsNoTracking()
+                .Where(d => d.RegistrationStatus == DoctorRegistrationStatuses.Approved)
+                .ToListAsync();
+            var matchedDoctor = approvedDoctors.FirstOrDefault(d =>
+                (d.FirstName + " " + d.LastName).ToLowerInvariant().Contains(searchClean) ||
+                d.FirstName.ToLowerInvariant().Contains(searchClean) ||
+                d.LastName.ToLowerInvariant().Contains(searchClean) ||
+                (!string.IsNullOrWhiteSpace(d.Specialization) && d.Specialization.ToLowerInvariant().Contains(searchClean)));
 
             if (matchedDoctor != null)
             {
@@ -502,9 +505,8 @@ public sealed partial class PlanningCoordinatorAgent
             }
 
             Reply(state, "How would you like to proceed with your clinical review?\n\n" +
-                "1. ⚡ Next Available Doctor (Fastest - on-duty clinician)\n" +
-                "2. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)\n" +
-                "3. ✕ Not right now (I will monitor my symptoms)", "GATHERING_INFORMATION");
+                "1. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)\n" +
+                "2. ✕ Not right now (I will monitor my symptoms)", "GATHERING_INFORMATION");
             return;
         }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue && appointmentIntent)
@@ -793,8 +795,12 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (workflow.TriageLevel == TriageLevels.Emergency)
         {
+            var flags = workflow.RedFlags.Count > 0
+                ? "\nCritical warning signs identified: " + string.Join(", ", workflow.RedFlags) + "\n"
+                : "";
             var emergencyMessage = "🚨 CRITICAL EMERGENCY ALERT\n\n" +
-                "Immediate emergency care is required. Your symptoms match critical medical warning signs.\n\n" +
+                "Immediate emergency care is required. Your symptoms match critical medical warning signs." +
+                (string.IsNullOrWhiteSpace(flags) ? "\n\n" : $"\n{flags}\n") +
                 "• Call 1990 (National Emergency Ambulance) or 911 immediately.\n" +
                 "• Proceed to the nearest 24/7 Hospital Emergency Room (ER).\n" +
                 "• Our Emergency Department has been automatically alerted of your case.\n\n" +
@@ -813,9 +819,8 @@ public sealed partial class PlanningCoordinatorAgent
                 ? "Based on the symptoms you reported, we recommend having a medical professional review this assessment."
                 : workflow.PatientMessage) +
                 "\n\nHow would you like to proceed with your clinical review?" +
-                "\n1. ⚡ Next Available Doctor (Fastest - on-duty clinician)" +
-                "\n2. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)" +
-                "\n3. ✕ Not right now (I will monitor my symptoms)";
+                "\n1. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)" +
+                "\n2. ✕ Not right now (I will monitor my symptoms)";
             Reply(state, prompt, "GATHERING_INFORMATION");
             return;
         }
@@ -975,7 +980,26 @@ public sealed partial class PlanningCoordinatorAgent
         string message;
         if (urgent)
         {
-            message = "Appointment booking is paused because your assessment identified urgent safety concerns. Follow the assessment guidance and do not delay urgent care.";
+            var isEmergency = state.Clinical?.TriageLevel == "Emergency" || workflow?.TriageLevel == TriageLevels.Emergency;
+            if (isEmergency)
+            {
+                var flags = (state.Clinical?.EmergencyFlags ?? []).Count > 0
+                    ? "\nCritical warning signs identified: " + string.Join(", ", state.Clinical.EmergencyFlags) + "\n"
+                    : (workflow?.RedFlags ?? []).Count > 0
+                        ? "\nCritical warning signs identified: " + string.Join(", ", workflow.RedFlags) + "\n"
+                        : "";
+                message = "🚨 CRITICAL EMERGENCY ALERT\n\n" +
+                          "Appointment booking is unavailable because your symptoms require immediate emergency medical care." +
+                          (string.IsNullOrWhiteSpace(flags) ? "\n\n" : $"\n{flags}\n") +
+                          "• Call 1990 (National Emergency Ambulance) or 911 immediately.\n" +
+                          "• Proceed to the nearest 24/7 Hospital Emergency Room (ER).\n" +
+                          "• Our Emergency Department has been alerted of your case.\n\n" +
+                          "Do not wait for an online chat or message reply.";
+            }
+            else
+            {
+                message = "Appointment booking is paused because your assessment identified urgent safety concerns. Follow the assessment guidance and do not delay urgent care.";
+            }
         }
         else if (missingAnswers)
         {
@@ -998,7 +1022,14 @@ public sealed partial class PlanningCoordinatorAgent
         {
             var guidance = workflow.Guidance;
             var parts = new List<string> { message, workflow.PatientMessage, guidance?.Summary ?? "" };
-            parts.AddRange(workflow.MissingInformation);
+            var safeMissing = workflow.MissingInformation
+                .Where(m => !m.Contains(':') &&
+                            !m.Contains("vital signs", StringComparison.OrdinalIgnoreCase) &&
+                            !m.Contains("Missing.", StringComparison.OrdinalIgnoreCase) &&
+                            !m.Contains("extraction", StringComparison.OrdinalIgnoreCase) &&
+                            !m.Contains("untrusted", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            parts.AddRange(safeMissing);
             parts.AddRange(guidance?.Actions ?? []);
             parts.AddRange(guidance?.SeekHelpIf ?? []);
             message = string.Join("\n\n", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct());

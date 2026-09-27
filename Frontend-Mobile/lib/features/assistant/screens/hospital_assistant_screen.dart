@@ -720,8 +720,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
               ),
             ),
           if (message.role != 'user' &&
-              message.text.contains('Next Available Doctor') &&
-              message.text.contains('Select a Specific Doctor'))
+              message.text.contains('Select a Specific Doctor') &&
+              (message.text.contains('Not right now') || message.text.contains('clinical review')))
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 12),
               child: Container(
@@ -748,19 +748,14 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                       runSpacing: 8,
                       children: [
                         ActionChip(
-                          avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
-                          label: const Text('⚡ Next Available Doctor'),
-                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '1'),
-                        ),
-                        ActionChip(
                           avatar: const Icon(Icons.person_search, size: 16),
                           label: const Text('🩺 Choose Doctor'),
-                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '2'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '1'),
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.close, size: 16),
                           label: const Text('✕ Not right now'),
-                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '3'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '2'),
                         ),
                       ],
                     ),

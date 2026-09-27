@@ -162,7 +162,10 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.RequiresHumanReview = false;
             guidance = await CreateGuidanceAsync(extraction, request.Symptoms, workflow.Status, workflow.TriageLevel, false, run.Context.PlannedQuestions);
             if (guidance is null && extraction.Status == "FailedSafely" && run.Context.IsWithinValidatedRoutineScope)
-                guidance = CreateRoutineFallbackGuidance();
+            {
+                var concept = extraction.Facts?.PrimaryConcept ?? extraction.Concepts?.FirstOrDefault() ?? extraction.Symptoms.FirstOrDefault();
+                guidance = CreateRoutineFallbackGuidance(concept);
+            }
             var hasValidatedGuidance = guidance is not null;
             if (hasValidatedGuidance)
             {
@@ -346,13 +349,21 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         }
         if (workflow.Status == TriageWorkflowStatuses.Completed && guidance is null)
         {
-            workflow.Status = TriageWorkflowStatuses.FailedSafely;
-            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
-            workflow.TriageLevel = TriageLevels.InsufficientInformation;
-            workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
-            workflow.RequiresHumanReview = false;
-            workflow.ErrorCode ??= "ResponseGenerationUnavailable";
-            workflow.FinalOutcome = "We could not complete this assessment safely. Please try again shortly; seek urgent care if symptoms are severe or worsening.";
+            if (run.Context.IsWithinValidatedRoutineScope)
+            {
+                var concept = run.Context.Extraction?.Facts?.PrimaryConcept ?? run.Context.Extraction?.Concepts?.FirstOrDefault() ?? run.Context.Extraction?.Symptoms.FirstOrDefault();
+                guidance = CreateRoutineFallbackGuidance(concept);
+            }
+            else
+            {
+                workflow.Status = TriageWorkflowStatuses.FailedSafely;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.TriageLevel = TriageLevels.InsufficientInformation;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.RequiresHumanReview = false;
+                workflow.ErrorCode ??= "ResponseGenerationUnavailable";
+                workflow.FinalOutcome = "We could not complete this assessment safely. Please try again shortly; seek urgent care if symptoms are severe or worsening.";
+            }
         }
         ApplyRequirementDecision(workflow, run.Context, guidance);
         workflow.PlanJson = JsonSerializer.Serialize(CreateCompletedPlan(workflow.Status, run.Trace));
@@ -412,13 +423,16 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                     var isEmergencySpecialist = doctorSpecialty.Contains("emergency") || doctorSpecialty.Contains("critical");
                     var isGeneralSpecialist = doctorSpecialty.Contains("general") || doctorSpecialty.Contains("medicine") || doctorSpecialty == "";
                     var escalationCutoff = DateTime.UtcNow.AddMinutes(-2);
+                    var doctorResponseCutoff = DateTime.UtcNow.AddMinutes(-3);
 
                     query = query.Where(x =>
                         // 1. Specifically assigned to this doctor
                         x.AssignedDoctorId == doctor.DoctorId ||
-                        // 2. Critical Emergencies: visible to ER/General, OR escalated to all doctors after 2 minutes
+                        // 2. Assigned to a specific doctor, but unresponded after 3 minutes -> broadcast/escalate to all doctors
+                        (x.AssignedDoctorId != null && (x.UpdatedAt <= doctorResponseCutoff || x.CreatedAt <= doctorResponseCutoff)) ||
+                        // 3. Critical Emergencies: visible to ER/General, OR escalated to all doctors after 2 minutes
                         (x.PriorityLevel == "Critical" && (isEmergencySpecialist || isGeneralSpecialist || x.CreatedAt <= escalationCutoff)) ||
-                        // 3. Normal / unassigned reviews matching this doctor's specialty or general
+                        // 4. Normal / unassigned reviews matching this doctor's specialty or general
                         (x.AssignedDoctorId == null && x.PriorityLevel != "Critical" &&
                             (x.TargetSpecialty == null || isGeneralSpecialist ||
                              x.TargetSpecialty.ToLower() == doctorSpecialty ||
@@ -652,28 +666,82 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         return guidance;
     }
 
-    private static TriageGuidanceDto CreateRoutineFallbackGuidance() => new()
+    private static TriageGuidanceDto CreateRoutineFallbackGuidance(string? primaryConcept = null)
     {
-        Heading = "General guidance while the symptom assistant is unavailable",
-        Summary = "No configured emergency, urgent, or high-risk warning sign was detected in the information you provided. The AI symptom analysis is temporarily unavailable, so this is general guidance only.",
-        Actions =
-        [
-            "Rest, drink fluids regularly, and eat regular meals if you can.",
-            "Avoid known triggers or irritants, such as smoke, dust, or strong scents, when possible.",
-            "Take it easy and avoid strenuous activity until you are feeling better.",
-            "Keep a note of changes in your symptoms, including anything that makes them better or worse.",
-            "Contact a healthcare professional if the symptom persists, worsens, or concerns you."
-        ],
-        SeekHelpIf =
-        [
-            "Seek urgent help for severe or rapidly worsening symptoms.",
-            "Seek urgent help for trouble breathing, chest pain, fainting, confusion, or severe bleeding.",
-            "Contact a healthcare professional if symptoms do not improve, interfere with daily activities, or you develop a new concern."
-        ],
-        FollowUpItems = [],
-        FollowUpQuestions = [],
-        EvidenceSource = "Deterministic safety screening only; AI-generated symptom analysis was unavailable. This is not a diagnosis."
-    };
+        var concept = (primaryConcept ?? "").ToLowerInvariant();
+        List<string> actions;
+        if (concept.Contains("head") || concept.Contains("migraine"))
+        {
+            actions =
+            [
+                "Rest in a quiet, dimly lit or darkened room away from bright screens.",
+                "Apply a cool or warm compress to your forehead or the back of your neck.",
+                "Sip water steadily to ensure adequate hydration.",
+                "Practice gentle neck and shoulder relaxation to ease muscular tension.",
+                "Contact a doctor if the headache persists or differs from your usual pattern."
+            ];
+        }
+        else if (concept.Contains("throat") || concept.Contains("cough") || concept.Contains("cold"))
+        {
+            actions =
+            [
+                "Gargle with warm salt water several times a day to soothe throat irritation.",
+                "Drink warm soothing fluids such as herbal tea or warm water with honey.",
+                "Use a room humidifier or inhale steam from a warm shower to ease airways.",
+                "Rest your voice and get adequate sleep to support recovery.",
+                "Contact a clinician if fever develops, throat pain worsens, or symptoms persist."
+            ];
+        }
+        else if (concept.Contains("stomach") || concept.Contains("nausea") || concept.Contains("abdom") || concept.Contains("digest"))
+        {
+            actions =
+            [
+                "Sip small amounts of clear fluids or electrolyte drinks slowly throughout the day.",
+                "Stick to light, bland foods (like toast, rice, or crackers) when you feel able to eat.",
+                "Avoid greasy, spicy, rich, or heavily caffeinated foods and beverages.",
+                "Avoid lying flat immediately after eating or drinking; stay upright or gently propped up.",
+                "Consult a healthcare professional if nausea prevents keeping liquids down for over 24 hours."
+            ];
+        }
+        else if (concept.Contains("back") || concept.Contains("muscle") || concept.Contains("joint") || concept.Contains("pain"))
+        {
+            actions =
+            [
+                "Apply an ice pack (wrapped in a cloth) for 15-20 minutes, or gentle warmth to relax tight muscles.",
+                "Avoid prolonged immobility; engage in gentle, slow walking or position changes as tolerated.",
+                "Avoid heavy lifting, sudden bending, or twisting movements.",
+                "Maintain good spinal support when sitting or resting.",
+                "Contact a clinician if pain radiates down legs/arms or does not begin improving."
+            ];
+        }
+        else
+        {
+            actions =
+            [
+                "Rest and allow your body adequate recovery time away from strenuous exertion.",
+                "Drink fluids regularly and maintain consistent, balanced meals as tolerated.",
+                "Avoid known environmental triggers, smoke, dust, or excessive physical strain.",
+                "Keep a brief log of your symptoms and note any patterns or changes.",
+                "Contact a healthcare professional if symptoms persist or do not improve over the next few days."
+            ];
+        }
+
+        return new()
+        {
+            Heading = string.IsNullOrWhiteSpace(primaryConcept) ? "General self-care guidance" : $"General guidance for {primaryConcept}",
+            Summary = $"No high-risk warning signs were identified. Here is supportive self-care guidance tailored for {(!string.IsNullOrWhiteSpace(primaryConcept) ? primaryConcept : "your symptoms")}.",
+            Actions = actions,
+            SeekHelpIf =
+            [
+                "Seek urgent help for severe or rapidly worsening symptoms.",
+                "Seek urgent help for trouble breathing, chest pain, fainting, confusion, or severe bleeding.",
+                "Contact a healthcare professional if symptoms do not improve, interfere with daily activities, or you develop a new concern."
+            ],
+            FollowUpItems = [],
+            FollowUpQuestions = [],
+            EvidenceSource = "Supportive clinical self-care guidelines. This is non-diagnostic decision support."
+        };
+    }
 
     private static string ValidateAndFormatFreeTextAnswers(TriageWorkflow workflow, IReadOnlyList<TriageAnswerDto> answers, List<SafeTriageRequirement> requirements)
     {
