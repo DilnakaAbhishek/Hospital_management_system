@@ -17,8 +17,8 @@ class SecureTokenStorage {
       _storage.write(key: _tokenKey, value: token);
   static Future<void> clearToken() => _storage.delete(key: _tokenKey);
 
-  /// Returns true only when a stored JWT is present and has not expired.
-  /// Expired or malformed tokens are removed so the app returns to Login.
+  /// Returns true only when a stored JWT is present, has not expired, and belongs to a Patient.
+  /// Expired, non-patient, or malformed tokens are removed so the app returns to Login.
   static Future<bool> hasValidSession() async {
     final token = await readToken();
     final expiresAt = getTokenExpiry(token);
@@ -26,7 +26,28 @@ class SecureTokenStorage {
       await clearToken();
       return false;
     }
+    final role = getTokenRole(token);
+    if (role == null || role.toLowerCase() != 'patient') {
+      await clearToken();
+      return false;
+    }
     return true;
+  }
+
+  static String? getTokenRole(String? token) {
+    if (token == null || token.isEmpty) return null;
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      ) as Map<String, dynamic>;
+      final role = payload['role'] ??
+          payload['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'];
+      return role?.toString();
+    } catch (_) {
+      return null;
+    }
   }
 
   static DateTime? getTokenExpiry(String? token) {
