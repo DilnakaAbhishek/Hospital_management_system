@@ -45,6 +45,18 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { message, status = user.DoctorProfile?.RegistrationStatus ?? "Pending" });
         }
 
+        if (Request.Headers.TryGetValue("X-Client-Platform", out var clientPlatform) &&
+            string.Equals(clientPlatform.ToString(), "mobile", StringComparison.OrdinalIgnoreCase))
+        {
+            if (user.Role != "Patient")
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "Access restricted: Admin and Doctor accounts are only permitted to log in via the web portal. The mobile application is reserved for patients."
+                });
+            }
+        }
+
         var token = _jwtTokenService.Create(user, user.DoctorProfile?.DoctorId);
         return Ok(new LoginResponseDto { Token = token.Token, ExpiresAt = token.ExpiresAt, UserId = user.UserId,
             DoctorId = user.DoctorProfile?.DoctorId, FullName = user.FullName, Email = user.Email, Role = user.Role });

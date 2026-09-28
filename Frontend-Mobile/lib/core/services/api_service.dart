@@ -110,6 +110,7 @@ class ApiService {
       Uri.parse('$baseUrl/auth/login'),
       headers: {
         'Content-Type': 'application/json',
+        'X-Client-Platform': 'mobile',
       },
       body: jsonEncode({
         'email': email.trim(),
@@ -118,7 +119,14 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final role = (data['role'] ?? '').toString();
+      if (role.toLowerCase() != 'patient') {
+        throw Exception(
+          'Access restricted: Admin and Doctor accounts are only permitted to log in via the web portal. The mobile application is reserved for patients.',
+        );
+      }
+      return data;
     }
 
     throw Exception(_errorMessage(response.body));
