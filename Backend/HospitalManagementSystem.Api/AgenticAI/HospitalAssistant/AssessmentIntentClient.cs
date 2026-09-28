@@ -127,6 +127,23 @@ public sealed class GeminiAssessmentIntentClient(HttpClient http, IConfiguration
 
         HELP / CLARIFICATION
 
+        SOCIAL REPLIES
+
+        Recognize acknowledgements ("ok", "okay", "fine", "got it"), gratitude
+        ("thank you", "thanks"), and farewells ("bye", "goodbye", "see you").
+        When they do not answer the CURRENT question, use GENERAL_QUERY with
+        isAnswer=false and normalizedAnswer=null. Give a brief, natural reply:
+        "Okay. You can answer the question whenever you're ready.",
+        "You're welcome.", or "Goodbye. You can return whenever you need help."
+        Do not call these messages unsupported or repeat a long capabilities list.
+        Do not treat them as refusal, a negative clinical finding, consent to book,
+        assessment completion, or evidence that symptoms have resolved.
+        Context takes priority: "fine" can be an ANSWER if it directly answers the
+        current question about how the patient feels; it does not answer duration,
+        severity, or a specific yes/no symptom question. Ask briefly if ambiguous.
+        If a message also contains a question or a substantive answer, address that
+        content rather than responding only to the polite phrase.
+
         If the patient:
         - asks what the question means,
         - asks how to answer,

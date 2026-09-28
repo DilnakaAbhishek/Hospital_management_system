@@ -404,6 +404,24 @@ public sealed partial class PlanningCoordinatorAgent
             return;
         }
         await CheckPatientSafetyAsync(patient.PatientId, state);
+        // An acknowledgement of existing urgent guidance is not a new booking
+        // request, even when the interrupted conversation still wants an appointment.
+        // Keep the safety block and workflow intact; new symptoms and explicit
+        // confirmation/assessment answers retain their normal routes.
+        if (state.SafetyBlocked &&
+            state.Clinical?.TriageLevel is (TriageLevels.Emergency or TriageLevels.Urgent) &&
+            state.Awaiting is not ("clinical-answer" or "clinical-review-choice") &&
+            Has(text, @"^(ok|okay|fine|alright|all right|got it|understood|thanks|thank you|bye|goodbye)[.! ]*$"))
+        {
+            var acknowledgement = Has(text, @"^(thanks|thank you)[.! ]*$")
+                ? "You're welcome."
+                : Has(text, @"^(bye|goodbye)[.! ]*$") ? "Goodbye."
+                : Has(text, @"^(ok|okay)[.! ]*$") ? "Ok. If you need any help, please let me know."
+                : Has(text, @"^fine[.! ]*$") ? "Fine. If you need any help, please let me know."
+                : "Understood.";
+            Reply(state, acknowledgement, "WAITING_FOR_HUMAN_APPROVAL");
+            return;
+        }
         // --- FailedSafely Self-Retry ---
         // If the patient is stuck on a FailedSafely block (technical failure, not a medical danger)
         // and explicitly asks to start fresh, clear the stale workflow and let them try again.
@@ -767,6 +785,8 @@ public sealed partial class PlanningCoordinatorAgent
         // A new symptom message must always be assessed afresh. Pending review
         // status is restored by GetAsync; reusing it here would replay an older
         // clinical-review result instead of classifying the new patient report.
+        state.Clinical = null;
+        state.SafetyBlocked = false;
         var workflow = await workflows.StartForPatientAsync(patient.PatientId, new() { Symptoms = text, Vitals = legacyVitals }, state.ExecutionWorkflowId);
         state.WorkflowId = workflow.WorkflowId;
         ApplyWorkflow(state, workflow);
@@ -961,10 +981,10 @@ public sealed partial class PlanningCoordinatorAgent
         // Overwriting state.WorkflowId with a different conversation's ClinicalReview
         // workflow corrupts the current conversation's awaiting state and locks it
         // permanently in WAITING_FOR_HUMAN_APPROVAL — that is the bug being fixed here.
-        var blocking = history.FirstOrDefault(w =>
-            w.Status == TriageWorkflowStatuses.FailedSafely ||
-            (w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested &&
-             w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent));
+        var latest = history.FirstOrDefault();
+        var blocking = latest != null && (latest.Status == TriageWorkflowStatuses.FailedSafely ||
+            (latest.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested &&
+             latest.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent)) ? latest : null;
         if (blocking != null)
         {
             // A genuinely blocking workflow replaces the current workflow context so

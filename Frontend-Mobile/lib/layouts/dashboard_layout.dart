@@ -24,7 +24,6 @@ enum _PatientSection {
   doctors,
   records,
   assistant,
-  notifications,
   settings,
   support,
 }
@@ -63,6 +62,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   List<Map<String, dynamic>> _notifications = [];
   Set<String> _readNotificationIds = {};
   bool _loadingNotifications = false;
+  final MenuController _notificationMenu = MenuController();
   String? _notificationError;
 
   bool get _isTesting {
@@ -122,8 +122,6 @@ class _DashboardLayoutState extends State<DashboardLayout> {
       case 'AI Health Assistant':
       case 'AI Smart Triage':
         return _PatientSection.assistant;
-      case 'Notifications':
-        return _PatientSection.notifications;
       case 'Settings':
         return _PatientSection.settings;
       case 'Help & Support':
@@ -140,7 +138,6 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.doctors => 'Doctors',
         _PatientSection.records => 'Medical Records',
         _PatientSection.assistant => 'Hospital AI Assistant',
-        _PatientSection.notifications => 'Notifications',
         _PatientSection.settings => 'Settings',
         _PatientSection.support => 'Help & Support',
       };
@@ -153,8 +150,6 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.records => 'History, reports, prescriptions, and notes',
         _PatientSection.assistant =>
           'Patient guidance and appointment assistance',
-        _PatientSection.notifications =>
-          'Hospital updates and appointment reminders',
         _PatientSection.settings => 'Account, privacy, language, and security',
         _PatientSection.support => 'FAQs, hospital contact, and technical help',
       };
@@ -166,7 +161,6 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             onBookAppointment: () => _openAppointments('book'),
             onViewAppointments: () => _openAppointments('upcoming'),
             onOpenAssistant: () => _selectSection(_PatientSection.assistant),
-            onOpenMedicalRecords: () => _selectSection(_PatientSection.records),
             onOpenDoctors: () => _selectSection(_PatientSection.doctors),
           ),
         _PatientSection.profile => const ProfileScreen(),
@@ -182,22 +176,12 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.records => const MedicalRecordsScreen(embedded: true),
         _PatientSection.assistant =>
           const HospitalAssistantScreen(embedded: true),
-        _PatientSection.notifications => _NotificationsSection(
-            notifications: _notifications,
-            loading: _loadingNotifications,
-            error: _notificationError,
-            onRefresh: _loadNotifications,
-            onClearAll: _clearNotifications,
-          ),
         _PatientSection.settings => const _SettingsSection(),
         _PatientSection.support => const _SupportSection(),
       };
 
   void _selectSection(_PatientSection section, {bool closeDrawer = false}) {
     setState(() => _activeSection = section);
-    if (section == _PatientSection.notifications) {
-      _markNotificationsRead();
-    }
     if (closeDrawer) {
       Navigator.maybePop(context);
     }
@@ -298,6 +282,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _loadingNotifications = false;
         _notificationError = null;
       });
+      if (_notificationMenu.isOpen) await _markNotificationsRead();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -489,10 +474,103 @@ class _DashboardLayoutState extends State<DashboardLayout> {
               ],
             ),
           ),
-          _HeaderIconButton(
-            icon: Icons.notifications_none_rounded,
-            badgeCount: _unreadNotificationCount,
-            onTap: () => _selectSection(_PatientSection.notifications),
+          MenuAnchor(
+            controller: _notificationMenu,
+            consumeOutsideTap: true,
+            onOpen: _markNotificationsRead,
+            alignmentOffset: const Offset(0, 10),
+            style: MenuStyle(
+              alignment: Alignment.bottomRight,
+              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+              backgroundColor: WidgetStatePropertyAll(
+                isDark ? AppColors.surfaceDark : Colors.white,
+              ),
+              surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+              elevation: const WidgetStatePropertyAll(8),
+              shadowColor: const WidgetStatePropertyAll(Color(0x240F172A)),
+              shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                ),
+              )),
+            ),
+            menuChildren: [
+              SizedBox(
+                width: (MediaQuery.sizeOf(context).width - 32)
+                    .clamp(0.0, 380.0),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 8, 6, 4),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text('Notifications',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                            ),
+                            IconButton(
+                              tooltip: 'Refresh notifications',
+                              onPressed: _loadingNotifications
+                                  ? null : _loadNotifications,
+                              icon: const Icon(Icons.refresh_rounded, size: 20),
+                            ),
+                            IconButton(
+                              tooltip: 'Close notifications',
+                              onPressed: _notificationMenu.close,
+                              icon: const Icon(Icons.close_rounded, size: 20),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_notifications.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 0, 12, 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${_notifications.length} ${_notifications.length == 1 ? 'update' : 'updates'}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _clearNotifications,
+                                child: const Text('Clear all'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Flexible(
+                        child: _NotificationsSection(
+                          notifications: _notifications,
+                          loading: _loadingNotifications,
+                          error: _notificationError,
+                          onRefresh: _loadNotifications,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            builder: (context, controller, child) => Tooltip(
+              message: 'Notifications',
+              child: _HeaderIconButton(
+                icon: Icons.notifications_none_rounded,
+                badgeCount: _unreadNotificationCount,
+                onTap: () => controller.isOpen
+                    ? controller.close() : controller.open(),
+              ),
+            ),
           ),
           const SizedBox(width: 8),
           CircleAvatar(
@@ -771,7 +849,6 @@ class _HomeSection extends StatelessWidget {
   final VoidCallback onBookAppointment;
   final VoidCallback onViewAppointments;
   final VoidCallback onOpenAssistant;
-  final VoidCallback onOpenMedicalRecords;
   final VoidCallback onOpenDoctors;
 
   const _HomeSection({
@@ -780,7 +857,6 @@ class _HomeSection extends StatelessWidget {
     required this.onBookAppointment,
     required this.onViewAppointments,
     required this.onOpenAssistant,
-    required this.onOpenMedicalRecords,
     required this.onOpenDoctors,
   });
 
@@ -903,54 +979,6 @@ class _HomeSection extends StatelessWidget {
 
               const SizedBox(height: 26),
 
-              // ── Quick Actions ────────────────────────────────────────
-              Text('Quick Actions',
-                  style: TextStyle(
-                      color: textPrimary,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.0,
-                children: [
-                  _ActionTile(
-                    icon: Icons.psychology_alt_outlined,
-                    title: 'AI Assistant',
-                    subtitle: 'Chat, triage & book',
-                    color: const Color(0xFF4F46E5),
-                    onTap: onOpenAssistant,
-                  ),
-                  _ActionTile(
-                    icon: Icons.event_available_rounded,
-                    title: 'Appointments',
-                    subtitle: 'View & manage visits',
-                    color: const Color(0xFF0284C7),
-                    onTap: onViewAppointments,
-                  ),
-                  _ActionTile(
-                    icon: Icons.description_outlined,
-                    title: 'Medical Records',
-                    subtitle: 'Reports & prescriptions',
-                    color: const Color(0xFF059669),
-                    onTap: onOpenMedicalRecords,
-                  ),
-                  _ActionTile(
-                    icon: Icons.person_search_outlined,
-                    title: 'Find Doctor',
-                    subtitle: 'Specialists near you',
-                    color: const Color(0xFFD97706),
-                    onTap: onOpenDoctors,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 26),
-
               // ── Services ─────────────────────────────────────────────
               Text('Hospital Services',
                   style: TextStyle(
@@ -1000,6 +1028,19 @@ class _HomeSection extends StatelessWidget {
                 surfaceColor: surfaceColor,
                 borderColor: borderColor,
                 onTap: onBookAppointment,
+              ),
+              const SizedBox(height: 10),
+              _ServiceCard(
+                icon: Icons.person_search_outlined,
+                title: 'Find Doctor',
+                subtitle:
+                    'Find specialists and explore available consultation schedules.',
+                actionLabel: 'Find Doctor',
+                color: const Color(0xFFD97706),
+                isDark: isDark,
+                surfaceColor: surfaceColor,
+                borderColor: borderColor,
+                onTap: onOpenDoctors,
               ),
 
               const SizedBox(height: 24),
@@ -1071,107 +1112,6 @@ class _HeroActionButton extends StatelessWidget {
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
                       fontSize: 14)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _ActionTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.surfaceDark : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-                color: isDark ? AppColors.borderDark : AppColors.borderLight),
-            boxShadow: isDark
-                ? []
-                : [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    )
-                  ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.13),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(icon, color: color, size: 24),
-                  ),
-                  Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(Icons.arrow_forward_ios_rounded,
-                        color: color, size: 12),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.textPrimaryDark
-                      : AppColors.textPrimaryLight,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.textMutedDark
-                      : AppColors.textMutedLight,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  height: 1.3,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
             ],
           ),
         ),
@@ -2596,20 +2536,21 @@ class _NotificationsSection extends StatelessWidget {
   final bool loading;
   final String? error;
   final VoidCallback onRefresh;
-  final VoidCallback onClearAll;
 
   const _NotificationsSection({
     required this.notifications,
     required this.loading,
     this.error,
     required this.onRefresh,
-    required this.onClearAll,
   });
 
   @override
   Widget build(BuildContext context) {
     if (loading && notifications.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (error != null && notifications.isEmpty) {
@@ -2628,36 +2569,32 @@ class _NotificationsSection extends StatelessWidget {
       );
     }
 
-    return _PageScaffold(
-      children: [
-        if (notifications.isNotEmpty)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: onClearAll,
-              icon: const Icon(Icons.clear_all_rounded),
-              label: const Text('Clear all'),
-            ),
-          ),
-        if (notifications.isEmpty)
-          const _NotificationTile(
-              Icons.notifications_none_rounded,
-              'No notifications',
-              'You have no new updates from the hospital.',
-              ''),
-        ...notifications.map((item) {
-          final date = DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
-              DateTime.now();
-          final formattedDate =
-              DateFormat('MMM d, h:mm a').format(date.toLocal());
-          return _NotificationTile(
-            item['_icon'] as IconData? ?? Icons.notifications_none_rounded,
-            item['_title'] as String? ?? 'Notification',
-            item['message'] as String? ?? '',
-            formattedDate,
-          );
-        }),
-      ],
+    return SingleChildScrollView(
+      primary: false,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (notifications.isEmpty)
+            const _NotificationTile(
+                Icons.notifications_none_rounded,
+                'No notifications',
+                'You have no new updates from the hospital.',
+                ''),
+          ...notifications.map((item) {
+            final date = DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+                DateTime.now();
+            final formattedDate =
+                DateFormat('MMM d, h:mm a').format(date.toLocal());
+            return _NotificationTile(
+              item['_icon'] as IconData? ?? Icons.notifications_none_rounded,
+              item['_title'] as String? ?? 'Notification',
+              item['message'] as String? ?? '',
+              formattedDate,
+            );
+          }),
+        ],
+        ),
     );
   }
 }
@@ -3616,10 +3553,53 @@ class _NotificationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _InfoPanel(
-          icon: icon, title: title, subtitle: message, trailing: tag),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.surfaceDarkSecondary
+            : const Color(0xFFF4F8FC),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                    )),
+                const SizedBox(height: 5),
+                Text(message,
+                    style: TextStyle(fontSize: 12, height: 1.45, color: muted)),
+                if (tag.isNotEmpty) ...[
+                  const SizedBox(height: 9),
+                  Text(tag,
+                      style: TextStyle(fontSize: 11, color: muted)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -345,6 +345,50 @@ public sealed class HospitalAssistantTests
         Assert.Equal("You're welcome.", thanks.Messages.Last().Text);
     }
 
+    [Theory]
+    [InlineData("ok", "Okay. Let me know if you need anything else.")]
+    [InlineData("Fine!", "Okay. Let me know if you need anything else.")]
+    [InlineData("got it", "Okay. Let me know if you need anything else.")]
+    [InlineData("thank you", "You're welcome.")]
+    [InlineData("bye", "Goodbye. You can return whenever you need help.")]
+    [InlineData("thanks, bye!", "Goodbye. You can return whenever you need help.")]
+    public async Task SocialRepliesDoNotStartHospitalActions(string message, string expected)
+    {
+        await using var h = await Harness.Create();
+        var result = await h.Send(message);
+        Assert.Equal(expected, result.Messages.Last().Text);
+        Assert.Null(result.PendingAction);
+        Assert.Empty(result.Questions);
+        Assert.Empty(await h.Db.TriageWorkflows.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ThanksWithARequestDoesNotHideTheRequest()
+    {
+        await using var h = await Harness.Create();
+        var result = await h.Send("Thank you, show me all doctors");
+        Assert.NotEmpty(result.Doctors);
+        Assert.NotEqual("You're welcome.", result.Messages.Last().Text);
+    }
+
+    [Theory]
+    [InlineData("ok", "Okay. You can answer the question whenever you're ready.")]
+    [InlineData("fine", "Could you tell me how long you have had the symptoms?")]
+    [InlineData("thank you", "You're welcome.")]
+    [InlineData("bye", "Goodbye. You can return whenever you need help.")]
+    public async Task SocialAssessmentRepliesPreserveThePendingQuestion(string message, string expected)
+    {
+        await using var h = await Harness.Create();
+        var start = await h.Send("I have a mild headache");
+        h.Intent.UseNext = true;
+        h.Intent.Next = new("GENERAL_QUERY", false, null, expected);
+        var result = await h.Send(message, start.ConversationId);
+        Assert.Equal(expected, result.Messages.Last().Text);
+        Assert.Equal(Assert.Single(start.Questions).Id, Assert.Single(result.Questions).Id);
+        Assert.Empty(SavedState(await h.Db.AssistantConversations.SingleAsync()).Answers);
+        Assert.Null(result.PendingAction);
+    }
+
     [Fact]
     public async Task NewBookingWithoutDateShowsRealUpcomingSlotsWithoutReusingOldFilters()
     {
@@ -720,6 +764,42 @@ public sealed class HospitalAssistantTests
         var fresh = await h.Send("Book a cardiologist tomorrow");
         Assert.Null(fresh.PendingAction);
         Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("ok", "Ok. If you need any help, please let me know.")]
+    [InlineData("Fine!", "Fine. If you need any help, please let me know.")]
+    [InlineData("thank you", "You're welcome.")]
+    [InlineData("bye", "Goodbye.")]
+    public async Task EmergencyAcknowledgementDoesNotRepeatAlertOrClearSafety(string message, string expected)
+    {
+        await using var h = await Harness.Create();
+        var emergency = await h.Send("I have severe chest pain and difficulty breathing. Book a cardiologist tomorrow.");
+        var before = SavedState(await h.Db.AssistantConversations.SingleAsync());
+        var workflowCount = await h.Db.TriageWorkflows.CountAsync();
+        var eventCount = await h.Db.TriageWorkflowEvents.CountAsync();
+        var reply = await h.Send(message, emergency.ConversationId);
+        Assert.Equal(expected, reply.Messages.Last().Text);
+        Assert.Equal("WAITING_FOR_HUMAN_APPROVAL", reply.State);
+        var after = SavedState(await h.Db.AssistantConversations.SingleAsync());
+        Assert.True(after.SafetyBlocked);
+        Assert.Equal(before.WorkflowId, after.WorkflowId);
+        Assert.Equal(workflowCount, await h.Db.TriageWorkflows.CountAsync());
+        Assert.Equal(eventCount, await h.Db.TriageWorkflowEvents.CountAsync());
+        var booking = await h.Send("Book a cardiologist tomorrow", emergency.ConversationId);
+        Assert.Null(booking.PendingAction);
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AcknowledgementWithNewEmergencySymptomsStillUsesSafetyRoute()
+    {
+        await using var h = await Harness.Create();
+        var first = await h.Send("I have a mild headache");
+        var reply = await h.Send("ok, now I have severe chest pain and difficulty breathing", first.ConversationId);
+        Assert.NotEqual("Understood.", reply.Messages.Last().Text);
+        Assert.True(SavedState(await h.Db.AssistantConversations.SingleAsync()).SafetyBlocked);
+        Assert.Null(reply.PendingAction);
     }
 
     [Fact]
@@ -1244,6 +1324,28 @@ public sealed class HospitalAssistantTests
         // "like a general medicine doctor" -> resolves to "General Medicine"
         var queryGeneralMed = AssistantPreferences.Query("like a general medicine doctor", doctors);
         Assert.Equal("General Medicine", queryGeneralMed);
+    }
+
+    [Fact]
+    public async Task RepeatedOrNewNonUrgentSymptomPromptInSameSessionEvaluatesFreshly()
+    {
+        await using var h = await Harness.Create();
+        const string routinePrompt = "I have headache and fever and so i need to book a doctor to diagnose my illness";
+
+        // Turn 1: Routine prompt -> Non-urgent pathway, follow-up questions generated
+        var turn1 = await h.Send(routinePrompt);
+        Assert.NotEmpty(turn1.Questions);
+        Assert.Equal("GATHERING_INFORMATION", turn1.State);
+
+        // Turn 2: Urgent / severe prompt -> Emergency / Urgent escalation triggered
+        var turn2 = await h.Send("I have severe sudden onset chest pain radiating to my left arm", turn1.ConversationId);
+        Assert.Equal("WAITING_FOR_HUMAN_APPROVAL", turn2.State);
+
+        // Turn 3: User repeats the routine prompt within the same session
+        var turn3 = await h.Send(routinePrompt, turn1.ConversationId);
+        // The new prompt must be evaluated freshly, generate questions, and not be blocked by turn 2's previous warning sign
+        Assert.NotEmpty(turn3.Questions);
+        Assert.Equal("GATHERING_INFORMATION", turn3.State);
     }
 
     private sealed class FakeIntentClient : IAssessmentIntentClient

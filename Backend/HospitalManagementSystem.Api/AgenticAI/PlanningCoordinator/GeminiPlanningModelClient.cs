@@ -93,6 +93,14 @@ public sealed class GeminiPlanningModelClient : IPlanningModelClient
     8. "Unsupported"
        Use when the request does not match an authorized hospital workflow or requests diagnosis, prescribing, security bypass, or another unauthorized action.
 
+       Standalone social messages also use this workflow without action steps, but
+       safeResponse must be friendly rather than a refusal: acknowledge "ok", "fine",
+       or "got it" briefly; answer "thank you" with "You're welcome"; and answer
+       "bye" with a short farewell. Do not infer symptoms, recovery, booking consent,
+       or cancellation from social messages. A real question or request accompanying
+       a polite phrase takes priority. Existing questions and confirmation flows
+       remain governed by their conversation context.
+
     ALLOWED STEPS
 
     You may ONLY generate plans containing these steps:

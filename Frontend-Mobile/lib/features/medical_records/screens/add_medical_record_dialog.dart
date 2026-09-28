@@ -241,7 +241,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
 
   Future<void> _pickPdfAttachment() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         withData: true,
