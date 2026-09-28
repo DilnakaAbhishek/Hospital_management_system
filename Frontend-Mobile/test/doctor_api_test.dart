@@ -201,6 +201,16 @@ void main() {
     expect(find.text('Book appointment'), findsOneWidget);
     expect(find.text('Cardiology'), findsWidgets);
     expect(find.text('Dr. Nimal Perera'), findsWidgets);
-    expect(find.text('Select appointment no'), findsOneWidget);
+    final fields = tester.widgetList<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>)).toList();
+    expect(fields[0].initialValue, 'Cardiology');
+    expect(tester.widget<TextFormField>(find.widgetWithText(
+      TextFormField, 'Search or Select Doctor')).controller!.text, 'Dr. Nimal Perera');
+    expect(find.text('Appointment date and time'), findsOneWidget);
+    expect(find.text('Select appointment no'), findsNothing);
+    final sessionField = tester.widget<DropdownButton<int>>(find.descendant(
+      of: find.byType(DropdownButtonFormField<int>),
+      matching: find.byType(DropdownButton<int>)));
+    expect(sessionField.items!.map((item) => item.value), [15]);
   });
 }
