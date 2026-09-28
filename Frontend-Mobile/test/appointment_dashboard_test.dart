@@ -15,25 +15,50 @@ void main() {
     SecureTokenStorage.resetTokenForTesting();
   });
 
-  testWidgets('patient sees saved schedule changes in notifications', (tester) async {
+  for (final size in [const Size(800, 600), const Size(390, 844)]) {
+  testWidgets('patient sees saved schedule changes in notifications at $size', (tester) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
     SecureTokenStorage.setTokenForTesting('patient-token');
     ApiService.setHttpClientForTesting(MockClient((request) async {
       if (request.url.path == '/api/appointment/notifications') {
         expect(request.headers['Authorization'], 'Bearer patient-token');
         return jsonResponse([{
+          'appointmentNotificationId': 1,
           'message': 'Your appointment time has changed to 11:00 AM.',
           'createdAt': '2026-09-07T08:00:00Z',
         }]);
       }
+      if (request.url.path == '/api/triage-workflows/notifications') {
+        return jsonResponse([]);
+      }
       return jsonResponse({'data': []});
     }));
-    await tester.pumpWidget(const MaterialApp(home: DashboardLayout(title: 'Notifications')));
+    await tester.pumpWidget(const MaterialApp(home: DashboardLayout()));
     await tester.pumpAndSettle();
-    expect(find.text('Appointment Updated'), findsOneWidget);
+    expect(find.text('Your appointment time has changed to 11:00 AM.'), findsNothing);
+    await tester.tap(find.byTooltip('Notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Appointment Update'), findsOneWidget);
     expect(find.text('Your appointment time has changed to 11:00 AM.'), findsOneWidget);
     expect(find.text('Your cardiology visit has been confirmed.'), findsNothing);
+    await tester.tapAt(const Offset(5, 550));
+    await tester.pumpAndSettle();
+    expect(find.text('Your appointment time has changed to 11:00 AM.'), findsNothing);
+    expect(find.text('Home'), findsWidgets);
+    await tester.tap(find.byTooltip('Notifications'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear all'));
+    await tester.pumpAndSettle();
+    expect(find.text('No notifications'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('No notifications'), findsNothing);
   });
+  }
 
   testWidgets('doctor Book opens the form with that doctor preselected',
       (tester) async {

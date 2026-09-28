@@ -8,7 +8,6 @@ plugins {
 android {
     namespace = "com.example.smartcare_mobile"
     compileSdk = flutter.compileSdkVersion
-    buildToolsVersion = "34.0.0"
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
