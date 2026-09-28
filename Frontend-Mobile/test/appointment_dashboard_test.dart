@@ -70,14 +70,14 @@ void main() {
     final fields = tester.widgetList<DropdownButtonFormField<String>>(
       find.byType(DropdownButtonFormField<String>)).toList();
     expect(fields[0].initialValue, 'Cardiology');
-    expect(fields[1].initialValue, 'Dr. Ada Lovelace');
-    expect(find.text('Appointment date'), findsOneWidget);
+    expect(tester.widget<TextFormField>(find.widgetWithText(
+      TextFormField, 'Search or Select Doctor')).controller!.text, 'Dr. Ada Lovelace');
+    expect(find.text('Appointment date and time'), findsOneWidget);
     expect(find.text('Select appointment no'), findsNothing);
     expect(requests.any((request) => request.method == 'POST'), isFalse);
 
     await selectBookingSession(tester);
-    expect(find.text('Next available appointment number'), findsOneWidget);
-    expect(find.text('This number may change if someone books before you confirm.'), findsOneWidget);
+    expect(find.text('Next available appointment number: #1\nThis number may change if someone books before you confirm.'), findsOneWidget);
     await tester.ensureVisible(find.text('Confirm'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
@@ -97,7 +97,13 @@ void main() {
     await tester.tap(find.text('Book Appointment'));
     await tester.pumpAndSettle();
     await selectDropdownValue(tester, 0, 'Cardiology');
-    await selectDropdownValue(tester, 1, 'Dr. Ada Lovelace');
+    final doctorField = find.widgetWithText(TextFormField, 'Search or Select Doctor');
+    await tester.ensureVisible(doctorField);
+    await tester.pumpAndSettle();
+    await tester.enterText(doctorField, 'Ada');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Dr. Ada Lovelace'));
+    await tester.pumpAndSettle();
     await selectBookingSession(tester);
     await tester.ensureVisible(find.text('Confirm'));
     await tester.pumpAndSettle();
@@ -210,13 +216,14 @@ Future<void> pumpAppointmentsDashboard(
   final future = DateTime.now().toUtc().add(const Duration(days: 30));
   final appointments = appointmentJson();
   final slots = slotJson();
+  // Keep upcoming fixtures in the future regardless of when the suite runs.
+  appointments.first['startAt'] = future.toIso8601String();
+  appointments.first['endAt'] = future.add(const Duration(hours: 1)).toIso8601String();
+  for (final slot in slots) {
+    slot['startAt'] = future.toIso8601String();
+    slot['endAt'] = future.add(const Duration(hours: 1)).toIso8601String();
+  }
   if (rescheduleFixture) {
-    appointments.first['startAt'] = future.toIso8601String();
-    appointments.first['endAt'] = future.add(const Duration(hours: 1)).toIso8601String();
-    for (final slot in slots) {
-      slot['startAt'] = future.toIso8601String();
-      slot['endAt'] = future.add(const Duration(hours: 1)).toIso8601String();
-    }
     slots.add({...slots.first, 'doctorTimeSlotId': 13});
   }
   SharedPreferences.setMockInitialValues({
@@ -226,6 +233,12 @@ Future<void> pumpAppointmentsDashboard(
   SecureTokenStorage.setTokenForTesting('test-token');
   ApiService.setHttpClientForTesting(MockClient((request) async {
     requests?.add(request);
+    if (request.method == 'GET' && request.url.path == '/api/patient/doctors') {
+      return jsonResponse([
+        {'doctorId': 1, 'fullName': 'Ada Lovelace', 'specialization': 'Cardiology'},
+        {'doctorId': 2, 'fullName': 'Alan Turing', 'specialization': 'Cardiology'},
+      ]);
+    }
     if (failAppointments && request.url.path == '/api/appointment') {
       return jsonResponse({'message': 'Unable to load appointments.'}, 500);
     }
@@ -288,17 +301,13 @@ Future<void> pumpAppointmentsDashboard(
 }
 
 Future<void> selectBookingSession(WidgetTester tester) async {
-  final dateField = find.byType(DropdownButtonFormField<String>).at(2);
-  await tester.ensureVisible(dateField);
-  await tester.tap(dateField);
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Sep 10, 2026').last);
-  await tester.pumpAndSettle();
   final sessionField = find.byType(DropdownButtonFormField<int>);
   final field = tester.widget<DropdownButton<int>>(find.descendant(
     of: sessionField, matching: find.byType(DropdownButton<int>)));
-  final label = (field.items!.first.child as Text).data!;
+  expect(field.items!.map((item) => item.value), [11]);
+  final label = ((field.items!.first.child as Column).children.first as Text).data!;
   await tester.ensureVisible(sessionField);
+  await tester.pumpAndSettle();
   await tester.tap(sessionField);
   await tester.pumpAndSettle();
   await tester.tap(find.text(label).last);
@@ -307,7 +316,10 @@ Future<void> selectBookingSession(WidgetTester tester) async {
 
 Future<void> selectDropdownValue(
     WidgetTester tester, int dropdownIndex, String value) async {
-  await tester.tap(find.byType(DropdownButtonFormField<String>).at(dropdownIndex));
+  final dropdown = find.byType(DropdownButtonFormField<String>).at(dropdownIndex);
+  await tester.ensureVisible(dropdown);
+  await tester.pumpAndSettle();
+  await tester.tap(dropdown);
   await tester.pumpAndSettle();
   await tester.tap(find.text(value).last);
   await tester.pumpAndSettle();
