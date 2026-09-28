@@ -72,6 +72,19 @@ class ApiService {
         .toList();
   }
 
+  static Future<List<Map<String, dynamic>>> getMedicalRecordNotifications() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/medicalrecord/notifications/patient'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Unable to load medical record notifications.');
+    }
+    return (jsonDecode(response.body) as List<dynamic>)
+        .map((item) => item as Map<String, dynamic>)
+        .toList();
+  }
+
   static Future<List<Patient>> getPatients({String search = ''}) async {
     final query = <String, String>{
       'page': '1',

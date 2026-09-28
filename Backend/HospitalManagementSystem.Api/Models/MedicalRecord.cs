@@ -7,7 +7,7 @@ namespace HospitalManagementSystem.Api.Models
     {
         public const string Draft = "Draft";
         public const string Finalized = "Finalized";
-        public const string Archived = "Archived";
+        // Note: Archived status has been removed. Records are either Draft or Finalized.
     }
 
     public static class MedicalRecordTypes

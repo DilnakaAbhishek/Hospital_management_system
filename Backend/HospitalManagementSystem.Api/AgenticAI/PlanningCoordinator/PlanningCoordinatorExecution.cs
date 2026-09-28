@@ -311,20 +311,24 @@ public sealed partial class PlanningCoordinatorAgent
         state.State = "ROUTING";
         var rawSafety = ClinicalSafetyTools.EvaluateRedFlags(text);
         var planned = state.ExecutionWorkflowId == null ? null : await _store.GetAsync(state.ExecutionWorkflowId, token);
-        var informationQuestion = IsHealthInformationQuestion(text);
+        var hasExplicitBookingVerb = Has(text, @"\b(book|booking|schedule|reserve)\b");
+        var isMedicalRecordQuery = !hasExplicitBookingVerb &&
+            registry.AdditionalAgents.Any(agent => agent.Capability.Enabled && agent.Capability.Id == "medical-reports" && agent.CanHandle(text));
+        var informationQuestion = !isMedicalRecordQuery && IsHealthInformationQuestion(text);
         var plannedClinical = !informationQuestion && planned?.Objective == text && planned.Plan.WorkflowType is "SafeTriage" or "TriageThenAppointmentProposal";
         // Compute appointmentIntent first so it can suppress soft symptom signals.
-        var appointmentIntent = (planned?.Objective == text && planned.Plan.WorkflowType is ("AppointmentProposal" or "AppointmentStatus") &&
+        var appointmentIntent = (!isMedicalRecordQuery || hasExplicitBookingVerb) &&
+            (((planned?.Objective == text && planned.Plan.WorkflowType is ("AppointmentProposal" or "AppointmentStatus") &&
             (planned.Plan.AppointmentRequested || planned.Plan.WorkflowType == "AppointmentStatus")) ||
             Has(text, @"\b(appointment|appointments|book|booking|doctor|surgeon|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b") ||
-            (state.SearchQuery != null && Has(text, @"\bproceed\b"));
+            (state.SearchQuery != null && Has(text, @"\bproceed\b"))));
         // An explicit booking verb (book/schedule/reserve) suppresses the soft IsRoutine
         // and generic keyword symptom signals. Real safety red-flags and pre-planned
         // clinical workflows are always unconditional and are never suppressed.
-        var hasExplicitBookingVerb = Has(text, @"\b(book|booking|schedule|reserve)\b");
-        var symptoms = plannedClinical || rawSafety.HasEscalation ||
+        var symptoms = (plannedClinical || rawSafety.HasEscalation ||
             (!hasExplicitBookingVerb && (ClinicalSafetyTools.IsRoutine(text, null) ||
-            Has(text, @"\b(symptom|symptoms|pain|bleeding|fever|cough|sick|unwell|dizzy|headache|nausea|vomiting|breathing|rash|swollen|feel ill|hurt|suffering|nosebleed|shortness|feeling)\b")));
+            Has(text, @"\b(symptom|symptoms|pain|bleeding|fever|cough|sick|unwell|dizzy|headache|nausea|vomiting|breathing|rash|swollen|feel ill|hurt|suffering|nosebleed|shortness|feeling)\b"))))
+            && (!isMedicalRecordQuery || rawSafety.HasEscalation);
         var askingCancel = Has(text, @"\b(cancel|cancellation)\b") &&
             (appointmentIntent || Has(text, @"\b(my|next|current|existing|booking|reservation)\b"));
         var lookingForAlternative = appointmentIntent && Has(text, @"\b(another|alternative|cannot attend|can't attend)\b");
@@ -342,7 +346,7 @@ public sealed partial class PlanningCoordinatorAgent
             await StartClinicalAsync(patient, state, text, token);
             return;
         }
-        if (informationQuestion && state.Awaiting is not ("clinical-answer" or "cancellation-reason"))
+        if (informationQuestion && !isMedicalRecordQuery && state.Awaiting is not ("clinical-answer" or "cancellation-reason"))
         {
             // Informational questions do not create or continue a triage workflow.
             // Explicit red flags above retain priority over this branch.

@@ -274,6 +274,62 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
         await db.SaveChangesAsync();
     }
 
+    const string dilnakaEmail = "dilnaka.perera@medicore.lk";
+    if (!await db.Users.AnyAsync(u => u.Email == dilnakaEmail))
+    {
+        var passwordHasher = new PasswordHasher<User>();
+        var user = new User { FullName = "Dr. Dilnaka Perera", Email = dilnakaEmail, Role = "Doctor" };
+        user.PasswordHash = passwordHasher.HashPassword(user, "Doctor123!");
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        var admin = await db.Users.FirstOrDefaultAsync(u => u.Role == "Admin");
+        db.Doctors.Add(new HospitalManagementSystem.Api.Models.Doctor
+        {
+            UserId = user.UserId,
+            FirstName = "Dr. Dilnaka",
+            LastName = "Perera",
+            NIC = "198923456781",
+            Specialization = "General Medicine",
+            SlmcLicenseNumber = "SLMC-7812",
+            PhoneNumber = "0771234567",
+            RegistrationStatus = HospitalManagementSystem.Api.Models.DoctorRegistrationStatuses.Approved,
+            ReviewedByUserId = admin?.UserId,
+            ReviewedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+
+    const string kasunEmail = "kasun.silva@medicore.lk";
+    if (!await db.Users.AnyAsync(u => u.Email == kasunEmail))
+    {
+        var passwordHasher = new PasswordHasher<User>();
+        var user = new User { FullName = "Dr. Kasun Silva", Email = kasunEmail, Role = "Doctor" };
+        user.PasswordHash = passwordHasher.HashPassword(user, "Doctor123!");
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        var admin = await db.Users.FirstOrDefaultAsync(u => u.Role == "Admin");
+        db.Doctors.Add(new HospitalManagementSystem.Api.Models.Doctor
+        {
+            UserId = user.UserId,
+            FirstName = "Dr. Kasun",
+            LastName = "Silva",
+            NIC = "199134567892",
+            Specialization = "Cardiologist",
+            SlmcLicenseNumber = "SLMC-9023",
+            PhoneNumber = "0719876543",
+            RegistrationStatus = HospitalManagementSystem.Api.Models.DoctorRegistrationStatuses.Approved,
+            ReviewedByUserId = admin?.UserId,
+            ReviewedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+
     if (!await db.Patients.AnyAsync())
     {
         db.Patients.AddRange(

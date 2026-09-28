@@ -92,12 +92,11 @@ public sealed class MedicalReportAssistantAgentTests
     }
 
     [Fact]
-    public async Task ReadAsync_ExcludesDraftAndArchivedRecords()
+    public async Task ReadAsync_ExcludesDraftRecords()
     {
         var records = new[]
         {
             new MedicalRecord { MedicalRecordId = 1, PatientId = 1, Status = MedicalRecordStatuses.Draft },
-            new MedicalRecord { MedicalRecordId = 2, PatientId = 1, Status = MedicalRecordStatuses.Archived },
             new MedicalRecord { MedicalRecordId = 3, PatientId = 1, Status = MedicalRecordStatuses.Finalized }
         };
         var fakeAi = new FakeIntelligenceAgent();
@@ -241,6 +240,360 @@ public sealed class MedicalReportAssistantAgentTests
         Assert.False(result.UsedGemini);
         Assert.Contains("Essential Hypertension", result.PlainLanguageSummary);
         Assert.Contains("Amlodipine 5mg OD", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_AnswersSymptomsFromTypedMedicalData_WithoutFileAttachments()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Acute Bronchitis",
+            Symptoms = "Persistent dry cough, mild wheezing and chest tightness",
+            TreatmentPlan = "Hydration, bronchodilator inhaler as needed",
+            PrescriptionNotes = "Salbutamol 100mcg inhaler",
+            Attachments = []
+        };
+
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "What are my symptoms?");
+
+        Assert.Contains("Persistent dry cough, mild wheezing and chest tightness", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_AnswersTreatmentPlanFromTypedMedicalData_WithoutFileAttachments()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Gastritis",
+            TreatmentPlan = "Avoid spicy foods, eat smaller frequent meals, take PPI before breakfast",
+            PrescriptionNotes = "Omeprazole 20mg daily",
+            Attachments = []
+        };
+
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "What is my treatment plan?");
+
+        Assert.Contains("Avoid spicy foods, eat smaller frequent meals", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_AnswersTypedRecordDetails_WhenQueried()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Type 2 Diabetes Mellitus",
+            Symptoms = "Polydipsia, increased fatigue",
+            TreatmentPlan = "Diet control and regular exercise",
+            PrescriptionNotes = "Metformin 500mg BD",
+            LabNotes = "HbA1c: 7.2%",
+            Attachments = []
+        };
+
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "Tell me my medical record details from typed data");
+
+        Assert.Contains("Type 2 Diabetes Mellitus", result.PlainLanguageSummary);
+        Assert.Contains("Polydipsia, increased fatigue", result.PlainLanguageSummary);
+        Assert.Contains("Diet control and regular exercise", result.PlainLanguageSummary);
+        Assert.Contains("Metformin 500mg BD", result.PlainLanguageSummary);
+        Assert.Contains("HbA1c: 7.2%", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_NonMedicalAttachment_MentionsNonRelevantFile_AndSuppliesTypedMedicalData()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Migraine with Aura",
+            Symptoms = "Throbbing unilateral headache, photophobia",
+            TreatmentPlan = "Rest in a dark room, maintain sleep schedule",
+            PrescriptionNotes = "Sumatriptan 50mg PRN",
+            Attachments =
+            [
+                new MedicalRecordAttachment
+                {
+                    AttachmentId = 10,
+                    FileName = "hotel_receipt.pdf",
+                    FileType = "application/pdf"
+                }
+            ]
+        };
+
+        // When user asks for a general summary
+        var summaryResult = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", null);
+        Assert.Contains("hotel_receipt.pdf", summaryResult.PlainLanguageSummary);
+        Assert.Contains("does not appear to be a relevant medical document", summaryResult.PlainLanguageSummary);
+        Assert.Contains("Migraine with Aura", summaryResult.PlainLanguageSummary);
+        Assert.Contains("Sumatriptan 50mg", summaryResult.PlainLanguageSummary);
+
+        // When user asks specifically about the attachment / uploaded file
+        var attachResult = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "What did I upload in my attachment?");
+        Assert.Contains("hotel_receipt.pdf", attachResult.PlainLanguageSummary);
+        Assert.Contains("does not appear to be a relevant medical document", attachResult.PlainLanguageSummary);
+        Assert.Contains("Migraine with Aura", attachResult.PlainLanguageSummary);
+        Assert.Contains("Rest in a dark room", attachResult.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_UploadQueryOnRecordWithoutAttachments_ExplainsPureTypedData()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Hypertension",
+            TreatmentPlan = "Low sodium diet",
+            PrescriptionNotes = "Losartan 50mg daily",
+            Attachments = []
+        };
+
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "What is my attached file?");
+
+        Assert.Contains("does not have any attached files", result.PlainLanguageSummary);
+        Assert.Contains("Hypertension", result.PlainLanguageSummary);
+        Assert.Contains("Low sodium diet", result.PlainLanguageSummary);
+    }
+
+    [Theory]
+    [InlineData("What are the details of my typed medical data?")]
+    [InlineData("Show me my medical record details")]
+    [InlineData("Can you tell me about my treatment plan?")]
+    [InlineData("What are my recorded symptoms?")]
+    [InlineData("What was my diagnosis and what medications did the doctor prescribe?")]
+    [InlineData("What did the doctor prescribe?")]
+    [InlineData("Explain my latest lab results and cholesterol findings")]
+    [InlineData("What did I upload for my medical record?")]
+    [InlineData("Summarize my medical records")]
+    public void MedicalReportAssistantAgent_CanHandle_RecognizesTypedDataAndAttachmentQueries(string query)
+    {
+        var agent = new MedicalReportAssistantAgent(new FakeMedicalRecordRepository([]), new FakeIntelligenceAgent());
+        Assert.True(agent.CanHandle(query));
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_CompoundDiagnosisAndMedicationsQuery_AnswersBoth()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Essential Hypertension",
+            Symptoms = "Occasional morning dizziness",
+            TreatmentPlan = "DASH diet, 30 min daily walking",
+            PrescriptionNotes = "Amlodipine 5mg OD, Telmisartan 40mg OD"
+        };
+
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "What was my diagnosis and what medications did the doctor prescribe?");
+
+        Assert.Contains("Essential Hypertension", result.PlainLanguageSummary);
+        Assert.Contains("Amlodipine 5mg OD", result.PlainLanguageSummary);
+        Assert.Contains("Telmisartan 40mg OD", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public void DeterministicSafetyEngine_RecordedSymptomsQuery_AnswersSymptoms()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Diagnosis = "Acute Bronchitis",
+            Symptoms = "Dry cough, mild fever, sore throat",
+            TreatmentPlan = "Hydration, warm fluids, steam inhalation",
+            PrescriptionNotes = "Paracetamol 500mg SOS"
+        };
+
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary([record], "Kamal", "What are my recorded symptoms?");
+
+        Assert.Contains("Dry cough, mild fever, sore throat", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public async Task DeterministicEngine_WhenQueryAsksAboutLabAttachment_AcknowledgesDocument()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 2,
+            PatientId = 1,
+            RecordDate = DateTime.UtcNow,
+            Diagnosis = "Hyperlipidemia",
+            TreatmentPlan = "Diet and exercise",
+            LabNotes = "Cholesterol: 218 mg/dL; LDL: 138 mg/dL",
+            Status = MedicalRecordStatuses.Finalized,
+            Attachments =
+            [
+                new MedicalRecordAttachment
+                {
+                    AttachmentId = 10,
+                    MedicalRecordId = 2,
+                    FileName = "blood_test_lab_report.pdf",
+                    FileType = "application/pdf",
+                    FileUrl = "https://example.com/blood_test_lab_report.pdf"
+                }
+            ]
+        };
+
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = ""
+        }).Build();
+
+        using var http = new HttpClient();
+        var client = new GeminiMedicalRecordClient(http, config, NullLogger<GeminiMedicalRecordClient>.Instance);
+        var result = await client.AnalyzeRecordsAsync(
+            [record],
+            "Test Patient",
+            "what is Serum Creatinine finding in my last medical record attachment");
+
+        Assert.NotNull(result);
+        Assert.Contains("blood_test_lab_report.pdf", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public async Task DeterministicEngine_WhenQueryAsksSummaryOfLastRecord_FocusesOnlyOnLastRecord()
+    {
+        var record1 = new MedicalRecord
+        {
+            MedicalRecordId = 31,
+            PatientId = 1,
+            RecordDate = new DateTime(2026, 9, 28),
+            Diagnosis = "Essential Hypertension",
+            TreatmentPlan = "Low sodium diet",
+            PrescriptionNotes = "Amlodipine 5mg",
+            Status = MedicalRecordStatuses.Finalized
+        };
+
+        var record2 = new MedicalRecord
+        {
+            MedicalRecordId = 32,
+            PatientId = 1,
+            RecordDate = new DateTime(2026, 9, 28),
+            Diagnosis = "Clinical Lab Investigation",
+            TreatmentPlan = "Exercise",
+            LabNotes = "Cholesterol: 218 mg/dL",
+            Status = MedicalRecordStatuses.Finalized
+        };
+
+        var record3 = new MedicalRecord
+        {
+            MedicalRecordId = 33,
+            PatientId = 1,
+            RecordDate = new DateTime(2026, 9, 28),
+            Diagnosis = "Gastroesophageal Reflux Disease (GERD)",
+            TreatmentPlan = "Elevate head of bed",
+            PrescriptionNotes = "Pantoprazole 40mg",
+            Status = MedicalRecordStatuses.Finalized
+        };
+
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = ""
+        }).Build();
+
+        using var http = new HttpClient();
+        var client = new GeminiMedicalRecordClient(http, config, NullLogger<GeminiMedicalRecordClient>.Instance);
+        var result = await client.AnalyzeRecordsAsync(
+            [record3, record2, record1],
+            "Kasun Perera",
+            "give summerization regarding last uploaded medical record");
+
+        Assert.NotNull(result);
+        Assert.Contains("Record #33", result.PlainLanguageSummary);
+        Assert.Contains("Gastroesophageal Reflux Disease", result.PlainLanguageSummary);
+        Assert.DoesNotContain("Essential Hypertension", result.PlainLanguageSummary);
+        Assert.DoesNotContain("Amlodipine", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public async Task DeterministicEngine_WhenTypedDataIsGarbage_AndMedicalAttachmentPresent_IgnoresGarbageAndSummarizesDocument()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 88,
+            PatientId = 1,
+            RecordDate = new DateTime(2026, 9, 28),
+            Diagnosis = "asdfghjkl12345",
+            TreatmentPlan = "qwertyuiop",
+            Symptoms = "xyz123 random nonsense",
+            PrescriptionNotes = "none",
+            Status = MedicalRecordStatuses.Finalized,
+            Attachments =
+            [
+                new MedicalRecordAttachment
+                {
+                    AttachmentId = 20,
+                    MedicalRecordId = 88,
+                    FileName = "blood_test_lab_report.pdf",
+                    FileType = "application/pdf"
+                }
+            ]
+        };
+
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = ""
+        }).Build();
+
+        using var http = new HttpClient();
+        var client = new GeminiMedicalRecordClient(http, config, NullLogger<GeminiMedicalRecordClient>.Instance);
+        var result = await client.AnalyzeRecordsAsync(
+            [record],
+            "Sunil",
+            "give summerization regarding last uploaded medical record");
+
+        Assert.NotNull(result);
+        Assert.DoesNotContain("asdfghjkl12345", result.PlainLanguageSummary);
+        Assert.DoesNotContain("qwertyuiop", result.PlainLanguageSummary);
+        Assert.Contains("blood_test_lab_report.pdf", result.PlainLanguageSummary);
+        Assert.Contains("placeholder text", result.PlainLanguageSummary);
+    }
+
+    [Fact]
+    public async Task DeterministicEngine_WhenBothTypedDataAndMedicalAttachmentPresent_SynthesizesBothOptimally()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 89,
+            PatientId = 1,
+            RecordDate = new DateTime(2026, 9, 28),
+            Diagnosis = "Essential Hypertension",
+            TreatmentPlan = "DASH diet and walking",
+            PrescriptionNotes = "Amlodipine 5mg OD",
+            Status = MedicalRecordStatuses.Finalized,
+            Attachments =
+            [
+                new MedicalRecordAttachment
+                {
+                    AttachmentId = 21,
+                    MedicalRecordId = 89,
+                    FileName = "fasting_lipid_profile_report.pdf",
+                    FileType = "application/pdf"
+                }
+            ]
+        };
+
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = ""
+        }).Build();
+
+        using var http = new HttpClient();
+        var client = new GeminiMedicalRecordClient(http, config, NullLogger<GeminiMedicalRecordClient>.Instance);
+        var result = await client.AnalyzeRecordsAsync(
+            [record],
+            "Sunil",
+            "give summerization regarding last uploaded medical record");
+
+        Assert.NotNull(result);
+        Assert.Contains("Essential Hypertension", result.PlainLanguageSummary);
+        Assert.Contains("Amlodipine 5mg OD", result.PlainLanguageSummary);
+        Assert.Contains("fasting_lipid_profile_report.pdf", result.PlainLanguageSummary);
     }
 
     private sealed class FakeMedicalRecordRepository : IMedicalRecordRepository

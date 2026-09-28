@@ -307,6 +307,46 @@ export default function DashboardLayout() {
         }
       }
 
+      // 4. Medical record notifications
+      try {
+        const mrEndpoint =
+          user.role?.toLowerCase() === 'patient'
+            ? '/medicalrecord/notifications/patient'
+            : '/medicalrecord/notifications/staff'
+        const { data: mrData } = await apiClient.get(mrEndpoint)
+        if (Array.isArray(mrData)) {
+          mrData.forEach((item) => {
+            const notifId = `medicalrecord:${item.medicalRecordNotificationId}`
+            if (!dismissedIds.has(notifId)) {
+              const isAttachment = item.eventType === 'AttachmentUploaded'
+              items.push({
+                id: notifId,
+                type: 'medical-record',
+                category: 'Medical Records',
+                title: isAttachment
+                  ? user.role?.toLowerCase() === 'patient'
+                    ? 'Document Added to Your Record'
+                    : 'Patient Uploaded a Document'
+                  : 'New Medical Record Available',
+                message: item.message || 'A medical record update is available.',
+                time: item.createdAt ? new Date(item.createdAt).toLocaleString() : 'Recently',
+                rawTime: item.createdAt ? new Date(item.createdAt).getTime() : 0,
+                read: readIds.has(notifId),
+                targetUrl:
+                  user.role === 'Doctor'
+                    ? '/doctor/medical-records'
+                    : user.role === 'Admin'
+                    ? '/medical-records'
+                    : '/medical-records',
+                isEmergency: false,
+              })
+            }
+          })
+        }
+      } catch {
+        // Medical record notifications optional
+      }
+
       items.sort((a, b) => b.rawTime - a.rawTime)
       setNotifications(items)
     } finally {

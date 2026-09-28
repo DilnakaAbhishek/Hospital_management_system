@@ -27,6 +27,11 @@ namespace HospitalManagementSystem.Api.Services
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Downloads raw byte array of a file from storage given its public or relative URL or object key.
+        /// </summary>
+        Task<byte[]?> DownloadBytesAsync(string fileUrl, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Deletes a file from storage given its public or relative URL.
         /// </summary>
         Task<bool> DeleteAsync(string fileUrl, CancellationToken cancellationToken = default);

@@ -225,6 +225,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
       final results = await Future.wait([
         ApiService.getAppointmentNotifications(),
         ApiService.getClinicalReviewNotifications(),
+        ApiService.getMedicalRecordNotifications(),
       ]);
       final items = <Map<String, dynamic>>[
         ...results[0].map((item) => <String, dynamic>{
@@ -245,6 +246,19 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                 '_title': isEmergency ? '🚨 CRITICAL EMERGENCY ALERT' : 'Clinical Review Update',
                 '_icon': isEmergency ? Icons.warning_amber_rounded : Icons.medical_information_outlined,
                 '_isEmergency': isEmergency,
+              };
+            }),
+        ...results[2].map((item) {
+              final isAttachment = item['eventType'] == 'AttachmentUploaded';
+              return <String, dynamic>{
+                ...item,
+                '_notificationId':
+                    'medicalrecord:${item['medicalRecordNotificationId']}',
+                '_title': isAttachment
+                    ? 'Document Added to Your Record'
+                    : 'New Medical Record Available',
+                '_icon': Icons.folder_copy_outlined,
+                '_isEmergency': false,
               };
             }),
       ];
