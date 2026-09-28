@@ -145,4 +145,146 @@ describe('MedicalRecordFormModal', () => {
     expect(screen.getByPlaceholderText(/Amoxicillin\/Clavulanate 625mg/i)).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/Take immediately after meals/i)).toBeInTheDocument()
   })
+
+  it('does not close when clicking the modal overlay backdrop', async () => {
+    const onClose = vi.fn()
+
+    render(
+      <MedicalRecordFormModal
+        open={true}
+        onClose={onClose}
+        onSubmit={vi.fn()}
+        patients={samplePatients}
+      />
+    )
+
+    const overlay = document.querySelector('.modal-overlay')
+    expect(overlay).toBeInTheDocument()
+
+    // Click the overlay backdrop
+    fireEvent.click(overlay)
+
+    // Modal should NOT close
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('shows error if record date is set in the future', async () => {
+    const onSubmit = vi.fn()
+
+    render(
+      <MedicalRecordFormModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        patients={samplePatients}
+      />
+    )
+
+    // Select patient
+    const patientSelect = document.querySelector('select')
+    fireEvent.change(patientSelect, { target: { value: '4' } })
+
+    // Fill required text fields
+    fireEvent.change(screen.getByPlaceholderText(/Type 2 Diabetes/i), {
+      target: { value: 'Valid Consultation Diagnosis' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/Enter patient symptoms/i), {
+      target: { value: 'Persistent cough' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/Enter treatment plan/i), {
+      target: { value: 'Prescribed cough syrup' },
+    })
+
+    // Set record date to tomorrow or next year
+    const futureDate = new Date()
+    futureDate.setFullYear(futureDate.getFullYear() + 1)
+    const futureDateStr = futureDate.toISOString().split('T')[0]
+
+    const recordDateInputs = document.querySelectorAll('input[type="date"]')
+    const recordDateInput = recordDateInputs[0]
+    fireEvent.change(recordDateInput, { target: { value: futureDateStr } })
+
+    // Submit form
+    const submitBtn = screen.getByRole('button', { name: /create record/i })
+    fireEvent.click(submitBtn)
+
+    // Form should reject and display error
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/Record date cannot be in the future/i)
+    ).toBeInTheDocument()
+  })
+
+  it('shows error if follow-up date is not a future date or before record date', async () => {
+    const onSubmit = vi.fn()
+
+    render(
+      <MedicalRecordFormModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        patients={samplePatients}
+      />
+    )
+
+    // Select patient
+    const patientSelect = document.querySelector('select')
+    fireEvent.change(patientSelect, { target: { value: '4' } })
+
+    // Fill required text fields
+    fireEvent.change(screen.getByPlaceholderText(/Type 2 Diabetes/i), {
+      target: { value: 'Valid Consultation Diagnosis' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/Enter patient symptoms/i), {
+      target: { value: 'Persistent cough' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/Enter treatment plan/i), {
+      target: { value: 'Prescribed cough syrup' },
+    })
+
+    // Set follow up date to a past date
+    const pastDate = '2020-01-01'
+    const dateInputs = document.querySelectorAll('input[type="date"]')
+    const followUpInput = dateInputs[1]
+    fireEvent.change(followUpInput, { target: { value: pastDate } })
+
+    // Submit form
+    const submitBtn = screen.getByRole('button', { name: /create record/i })
+    fireEvent.click(submitBtn)
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/Follow-up date must be a future date/i)
+    ).toBeInTheDocument()
+  })
+
+  it('closes directly when clicking Cancel without showing confirmation popups', async () => {
+    const onClose = vi.fn()
+    const confirmSpy = vi.spyOn(window, 'confirm')
+
+    render(
+      <MedicalRecordFormModal
+        open={true}
+        onClose={onClose}
+        onSubmit={vi.fn()}
+        patients={samplePatients}
+      />
+    )
+
+    // Type into diagnosis field
+    fireEvent.change(screen.getByPlaceholderText(/Type 2 Diabetes/i), {
+      target: { value: 'Unsaved diagnosis text' },
+    })
+
+    // Click Cancel button
+    const cancelBtn = screen.getByRole('button', { name: /cancel/i })
+    fireEvent.click(cancelBtn)
+
+    // Ensure no popup dialog was triggered
+    expect(confirmSpy).not.toHaveBeenCalled()
+    // Directly closed
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    confirmSpy.mockRestore()
+  })
 })

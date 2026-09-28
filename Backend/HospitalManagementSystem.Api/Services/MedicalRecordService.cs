@@ -155,6 +155,21 @@ namespace HospitalManagementSystem.Api.Services
                 doctorId = doctor.DoctorId;
             }
 
+            if (string.IsNullOrWhiteSpace(dto.Diagnosis) || dto.Diagnosis.Trim().Length < 3)
+                throw new ArgumentException("Diagnosis is required and must be at least 3 characters long.");
+
+            var recordDate = DateTime.SpecifyKind((dto.RecordDate ?? DateTime.UtcNow).Date, DateTimeKind.Utc);
+            if (dto.RecordDate.HasValue && dto.RecordDate.Value.Date > DateTime.UtcNow.Date)
+                throw new ArgumentException("Record date cannot be in the future. It should be the creation date or past consultation date.");
+
+            if (dto.FollowUpDate.HasValue)
+            {
+                if (dto.FollowUpDate.Value.Date <= DateTime.UtcNow.Date)
+                    throw new ArgumentException("Follow-up date must be a future date.");
+                if (dto.FollowUpDate.Value.Date <= recordDate.Date)
+                    throw new ArgumentException("Follow-up date must be strictly after the record date.");
+            }
+
             var symptoms = !string.IsNullOrWhiteSpace(dto.Symptoms)
                 ? dto.Symptoms.Trim()
                 : (!string.IsNullOrWhiteSpace(dto.LabNotes) ? dto.LabNotes.Trim() : (!string.IsNullOrWhiteSpace(dto.PrescriptionNotes) ? dto.PrescriptionNotes.Trim() : "Clinical record"));
@@ -163,12 +178,25 @@ namespace HospitalManagementSystem.Api.Services
                 ? dto.TreatmentPlan.Trim()
                 : (!string.IsNullOrWhiteSpace(dto.PrescriptionNotes) ? dto.PrescriptionNotes.Trim() : "Follow general medical advice.");
 
+            if (string.IsNullOrWhiteSpace(treatmentPlan) || treatmentPlan.Trim().Length < 3)
+                throw new ArgumentException("Treatment plan / recommendations is required and must be at least 3 characters long.");
+
+            // Only a Doctor or Admin can finalize a record. Patients are restricted to Draft.
+            var isPrivilegedRole = string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
+                                   string.Equals(userRole, "Doctor", StringComparison.OrdinalIgnoreCase);
+            var requestedStatus = string.IsNullOrWhiteSpace(dto.Status) ? MedicalRecordStatuses.Finalized : dto.Status;
+            // Archived status is removed — treat it as Draft if somehow supplied
+            var resolvedStatus = string.Equals(requestedStatus, "Archived", StringComparison.OrdinalIgnoreCase)
+                ? MedicalRecordStatuses.Draft
+                : requestedStatus;
+            var finalStatus = isPrivilegedRole ? resolvedStatus : MedicalRecordStatuses.Draft;
+
             var record = new MedicalRecord
             {
                 PatientId = patient.PatientId,
                 DoctorId = doctorId,
                 AppointmentId = dto.AppointmentId,
-                RecordDate = DateTime.SpecifyKind((dto.RecordDate ?? DateTime.UtcNow).Date, DateTimeKind.Utc),
+                RecordDate = recordDate,
                 RecordType = string.IsNullOrWhiteSpace(dto.RecordType) ? MedicalRecordTypes.Consultation : dto.RecordType,
                 Diagnosis = dto.Diagnosis.Trim(),
                 Symptoms = symptoms,
@@ -176,10 +204,11 @@ namespace HospitalManagementSystem.Api.Services
                 PrescriptionNotes = dto.PrescriptionNotes?.Trim(),
                 LabNotes = dto.LabNotes?.Trim(),
                 FollowUpDate = dto.FollowUpDate,
-                Status = string.IsNullOrWhiteSpace(dto.Status) ? MedicalRecordStatuses.Finalized : dto.Status,
+                Status = finalStatus,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
+
 
             if (dto.Attachments != null && dto.Attachments.Any())
             {
@@ -207,6 +236,17 @@ namespace HospitalManagementSystem.Api.Services
             if (record == null)
                 return null;
 
+            if (string.IsNullOrWhiteSpace(dto.Diagnosis) || dto.Diagnosis.Trim().Length < 3)
+                throw new ArgumentException("Diagnosis is required and must be at least 3 characters long.");
+
+            if (dto.FollowUpDate.HasValue)
+            {
+                if (dto.FollowUpDate.Value.Date <= DateTime.UtcNow.Date)
+                    throw new ArgumentException("Follow-up date must be a future date.");
+                if (dto.FollowUpDate.Value.Date <= record.RecordDate.Date)
+                    throw new ArgumentException("Follow-up date must be strictly after the record date.");
+            }
+
             record.RecordType = dto.RecordType;
             record.Diagnosis = dto.Diagnosis.Trim();
             if (!string.IsNullOrWhiteSpace(dto.Symptoms))
@@ -218,6 +258,11 @@ namespace HospitalManagementSystem.Api.Services
             record.FollowUpDate = dto.FollowUpDate;
             if (dto.DoctorId.HasValue)
                 record.DoctorId = dto.DoctorId;
+            // Validate the requested status — Archived is removed, only Draft and Finalized are valid.
+            var validStatuses = new[] { MedicalRecordStatuses.Draft, MedicalRecordStatuses.Finalized };
+            if (!validStatuses.Contains(dto.Status, StringComparer.OrdinalIgnoreCase))
+                throw new ArgumentException($"Invalid record status '{dto.Status}'. Only 'Draft' and 'Finalized' are accepted.");
+
             record.Status = dto.Status;
 
             var updated = await _repo.UpdateAsync(record);
