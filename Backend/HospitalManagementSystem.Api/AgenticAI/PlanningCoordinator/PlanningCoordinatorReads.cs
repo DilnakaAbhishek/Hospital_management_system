@@ -15,9 +15,21 @@ public sealed partial class PlanningCoordinatorAgent
 
         // Mutation verbs remain in the existing proposal/approval route.
         if (Has(text, @"\b(book|booking|reserve|schedule|reschedule|cancel|create|confirm|proceed)\b")) return false;
-        if (Has(text, @"\b(thank(s| you)?|appreciate it)\b"))
+        if (Has(text, @"^(thanks|thank you|thanks a lot|thank you very much|appreciate it)( for (the help|your help|that))?[.! ]*$"))
         {
             Reply(state, "You're welcome.", "COMPLETED");
+            return true;
+        }
+        if (Has(text, @"^(bye|goodbye|bye bye|see you|see you later|thanks[, ]+bye|thank you[, ]+bye)[.! ]*$"))
+        {
+            Reply(state, "Goodbye. You can return whenever you need help.",
+                state.PendingAction != null ? "WAITING_FOR_HUMAN_APPROVAL" : state.Awaiting != null ? "GATHERING_INFORMATION" : "COMPLETED");
+            return true;
+        }
+        if (state.Awaiting == null && state.PendingAction == null && !state.WantsAppointment &&
+            Has(text, @"^(ok|okay|fine|alright|all right|got it|understood|sounds good)[.! ]*$"))
+        {
+            Reply(state, "Okay. Let me know if you need anything else.", "COMPLETED");
             return true;
         }
         if (Has(text, @"^(nothing|never mind|nevermind|no thanks|that's all|that is all)[.! ]*$"))
