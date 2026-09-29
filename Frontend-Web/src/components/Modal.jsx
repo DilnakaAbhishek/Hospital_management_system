@@ -2,13 +2,23 @@ import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import './Modal.css'
 
-export default function Modal({ open, onClose, title, subtitle, children, size = 'md', id }) {
+export default function Modal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  size = 'md',
+  id,
+  closeOnOverlayClick = true,
+  closeOnEscape = true,
+}) {
   const overlayRef = useRef()
 
   useEffect(() => {
     if (!open) return
     const handleKey = (e) => {
-      if (e.key === 'Escape') onClose()
+      if (closeOnEscape && e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKey)
     document.body.style.overflow = 'hidden'
@@ -16,7 +26,7 @@ export default function Modal({ open, onClose, title, subtitle, children, size =
       document.removeEventListener('keydown', handleKey)
       document.body.style.overflow = ''
     }
-  }, [open, onClose])
+  }, [open, onClose, closeOnEscape])
 
   if (!open) return null
 
@@ -24,7 +34,11 @@ export default function Modal({ open, onClose, title, subtitle, children, size =
     <div
       className="modal-overlay"
       ref={overlayRef}
-      onClick={(e) => e.target === overlayRef.current && onClose()}
+      onClick={(e) => {
+        if (closeOnOverlayClick && e.target === overlayRef.current) {
+          onClose()
+        }
+      }}
       role="dialog"
       aria-modal="true"
       aria-labelledby={id ? `${id}-title` : 'modal-title'}

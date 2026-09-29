@@ -65,6 +65,24 @@ export default function MedicalRecordFormModal({
   const [validationError, setValidationError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
 
+  const todayStr = new Date().toISOString().split('T')[0]
+
+  const getTomorrowStr = (baseDateStr) => {
+    try {
+      const d = baseDateStr ? new Date(baseDateStr) : new Date()
+      if (isNaN(d.getTime())) return ''
+      d.setDate(d.getDate() + 1)
+      return d.toISOString().split('T')[0]
+    } catch {
+      return ''
+    }
+  }
+
+  const minFollowUpDate = formData.recordDate && formData.recordDate >= todayStr
+    ? getTomorrowStr(formData.recordDate)
+    : getTomorrowStr(todayStr)
+
+
   useEffect(() => {
     if (initialData) {
       setFormData({
@@ -190,6 +208,28 @@ export default function MedicalRecordFormModal({
   }
 
   const processSelectedFiles = async (fileList) => {
+    const allowedExtensions = ['.pdf', '.png', '.jpg', '.jpeg', '.dicom', '.doc', '.docx']
+    const MAX_FILE_SIZE = 25 * 1024 * 1024
+    const MAX_ATTACHMENTS = 10
+
+    if (formData.attachments.length + fileList.length > MAX_ATTACHMENTS) {
+      setValidationError(`You can attach a maximum of ${MAX_ATTACHMENTS} documents per medical record.`)
+      return
+    }
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i]
+      const fileExt = '.' + (file.name.split('.').pop() || '').toLowerCase()
+      if (!allowedExtensions.includes(fileExt)) {
+        setValidationError(`"${file.name}" has an unsupported format. Allowed formats: PDF, PNG, JPG, JPEG, DICOM, DOC, DOCX.`)
+        return
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        setValidationError(`"${file.name}" exceeds the 25 MB file size limit. Please select a smaller document.`)
+        return
+      }
+    }
+
     const newItems = []
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i]
@@ -253,76 +293,111 @@ export default function MedicalRecordFormModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setValidationError(null)
+
     if (!formData.patientId) {
       setValidationError('Please select a patient.')
       return
     }
 
-    // Dynamic field validation per record type
-    if (isLabReport) {
-      if (!formData.diagnosis.trim()) {
-        setValidationError('Laboratory investigation / test name is required.')
+    // 1. Record Date validations (default to creation date, cannot be in future)
+    if (!formData.recordDate) {
+      setValidationError('Record date is required.')
+      return
+    }
+    if (formData.recordDate > todayStr) {
+      setValidationError('Record date cannot be in the future. It should be the creation date or past consultation date.')
+      return
+    }
+    if (new Date(formData.recordDate).getFullYear() < 1950) {
+      setValidationError('Record date cannot be earlier than 1950.')
+      return
+    }
+
+    // 2. Follow-Up Date validations (must be strictly in the future and after record date)
+    if (formData.followUpDate) {
+      if (formData.followUpDate <= todayStr) {
+        setValidationError('Follow-up date must be a future date (after today).')
         return
       }
-      if (!formData.labNotes.trim()) {
+      if (formData.recordDate && formData.followUpDate <= formData.recordDate) {
+        setValidationError('Follow-up date must be strictly after the record date.')
+        return
+      }
+      const followUpYear = new Date(formData.followUpDate).getFullYear()
+      const currentYear = new Date().getFullYear()
+      if (followUpYear > currentYear + 5) {
+        setValidationError('Follow-up date cannot be more than 5 years in the future.')
+        return
+      }
+    }
+
+    // 3. Diagnosis / Topic validation (meaningful text, at least 3 chars)
+    const cleanDiagnosis = formData.diagnosis.trim()
+    if (!cleanDiagnosis) {
+      if (isLabReport) setValidationError('Laboratory investigation / test name is required.')
+      else if (isPrescription) setValidationError('Medical condition / clinical indication is required.')
+      else if (isDischargeSummary) setValidationError('Final discharge diagnosis is required.')
+      else if (isGeneralNote) setValidationError('Note subject / heading is required.')
+      else setValidationError('Primary diagnosis is required.')
+      return
+    }
+    if (cleanDiagnosis.length < 3) {
+      setValidationError('Diagnosis / clinical title must be at least 3 characters long.')
+      return
+    }
+    if (/^[0-9\W_]+$/.test(cleanDiagnosis)) {
+      setValidationError('Diagnosis / title must contain meaningful clinical text, not only numbers or symbols.')
+      return
+    }
+
+    // 4. Treatment Plan / Recommendations validation
+    const cleanTreatmentPlan = formData.treatmentPlan.trim()
+    if (!cleanTreatmentPlan) {
+      if (isLabReport) setValidationError('Diagnostic impression & clinical interpretation is required.')
+      else if (isPrescription) setValidationError('Patient administration instructions & directions are required.')
+      else if (isDischargeSummary) setValidationError('Post-discharge instructions & care plan is required.')
+      else if (isGeneralNote) setValidationError('Recommendations and plan are required.')
+      else setValidationError('Treatment plan is required.')
+      return
+    }
+    if (cleanTreatmentPlan.length < 3) {
+      setValidationError('Treatment plan / recommendations must be at least 3 characters long.')
+      return
+    }
+
+    // 5. Dynamic field validation per record type
+    if (isLabReport) {
+      const cleanLabNotes = formData.labNotes.trim()
+      if (!cleanLabNotes) {
         setValidationError('Lab observations & test measurements are required.')
         return
       }
-      if (!formData.treatmentPlan.trim()) {
-        setValidationError('Diagnostic impression & clinical interpretation is required.')
+      if (cleanLabNotes.length < 3) {
+        setValidationError('Lab observations must be at least 3 characters long.')
         return
       }
     } else if (isPrescription) {
-      if (!formData.diagnosis.trim()) {
-        setValidationError('Medical condition / clinical indication is required.')
-        return
-      }
-      if (!formData.prescriptionNotes.trim()) {
+      const cleanPrescriptionNotes = formData.prescriptionNotes.trim()
+      if (!cleanPrescriptionNotes) {
         setValidationError('Prescription details & medication dosages are required.')
         return
       }
-      if (!formData.treatmentPlan.trim()) {
-        setValidationError('Patient administration instructions & directions are required.')
-        return
-      }
-    } else if (isDischargeSummary) {
-      if (!formData.diagnosis.trim()) {
-        setValidationError('Final discharge diagnosis is required.')
-        return
-      }
-      if (!formData.symptoms.trim()) {
-        setValidationError('Admission reason & hospital stay summary is required.')
-        return
-      }
-      if (!formData.treatmentPlan.trim()) {
-        setValidationError('Post-discharge instructions & care plan is required.')
-        return
-      }
-    } else if (isGeneralNote) {
-      if (!formData.diagnosis.trim()) {
-        setValidationError('Note subject / heading is required.')
-        return
-      }
-      if (!formData.symptoms.trim()) {
-        setValidationError('Clinical progress observations are required.')
-        return
-      }
-      if (!formData.treatmentPlan.trim()) {
-        setValidationError('Recommendations and plan are required.')
+      if (cleanPrescriptionNotes.length < 3) {
+        setValidationError('Prescription details must be at least 3 characters long.')
         return
       }
     } else {
-      // Standard Consultation
-      if (!formData.diagnosis.trim()) {
-        setValidationError('Primary diagnosis is required.')
+      // Standard Consultation, DischargeSummary, GeneralNote
+      const cleanSymptoms = formData.symptoms.trim()
+      if (!cleanSymptoms) {
+        if (isDischargeSummary) setValidationError('Admission reason & hospital stay summary is required.')
+        else if (isGeneralNote) setValidationError('Clinical progress observations are required.')
+        else setValidationError('Symptoms & clinical findings are required.')
         return
       }
-      if (!formData.symptoms.trim()) {
-        setValidationError('Symptoms & clinical findings are required.')
-        return
-      }
-      if (!formData.treatmentPlan.trim()) {
-        setValidationError('Treatment plan is required.')
+      if (cleanSymptoms.length < 3) {
+        setValidationError('Symptoms & observations must be at least 3 characters long.')
         return
       }
     }
@@ -331,11 +406,11 @@ export default function MedicalRecordFormModal({
     let finalSymptoms = formData.symptoms.trim()
     if (!finalSymptoms) {
       if (isLabReport) finalSymptoms = formData.labNotes.trim() || 'Laboratory diagnostic test findings'
-      else if (isPrescription) finalSymptoms = `Prescription issued for ${formData.diagnosis.trim()}`
+      else if (isPrescription) finalSymptoms = `Prescription issued for ${cleanDiagnosis}`
       else finalSymptoms = 'Clinical documentation'
     }
 
-    let finalTreatmentPlan = formData.treatmentPlan.trim()
+    let finalTreatmentPlan = cleanTreatmentPlan
     if (!finalTreatmentPlan) {
       if (isPrescription) finalTreatmentPlan = formData.prescriptionNotes.trim() || 'Follow prescribed regimen'
       else finalTreatmentPlan = 'Follow clinical advice'
@@ -349,8 +424,8 @@ export default function MedicalRecordFormModal({
       followUpDate: formData.followUpDate ? new Date(formData.followUpDate).toISOString() : null,
       recordDate: formData.recordDate
         ? (formData.recordDate.includes('T') ? formData.recordDate.split('T')[0] + 'T00:00:00.000Z' : `${formData.recordDate}T00:00:00.000Z`)
-        : `${new Date().toISOString().split('T')[0]}T00:00:00.000Z`,
-      diagnosis: formData.diagnosis.trim(),
+        : `${todayStr}T00:00:00.000Z`,
+      diagnosis: cleanDiagnosis,
       symptoms: finalSymptoms,
       treatmentPlan: finalTreatmentPlan,
       prescriptionNotes: formData.prescriptionNotes?.trim() || null,
@@ -397,6 +472,8 @@ export default function MedicalRecordFormModal({
       }
       size="lg"
       id="medical-record-form-modal"
+      closeOnOverlayClick={false}
+      closeOnEscape={false}
     >
       <form onSubmit={handleSubmit} className="patient-form mr-form-styled" id="medical-record-form">
         {validationError && (
@@ -752,10 +829,14 @@ export default function MedicalRecordFormModal({
               <input
                 type="date"
                 className="field__input"
+                max={todayStr}
                 value={formData.recordDate}
                 onChange={(e) => setFormData({ ...formData, recordDate: e.target.value })}
                 required
               />
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Defaults to today's creation date. Cannot be in the future.
+              </div>
             </div>
 
             <div className="field form-grid__span-2">
@@ -831,6 +912,20 @@ export default function MedicalRecordFormModal({
                   style={{ resize: 'vertical' }}
                 />
               </div>
+
+              <div className="field">
+                <label className="field__label">Recommended Repeat Test Date (Optional)</label>
+                <input
+                  type="date"
+                  className="field__input"
+                  min={minFollowUpDate}
+                  value={formData.followUpDate}
+                  onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
+                />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Must be a future date after the record date.
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -894,9 +989,13 @@ export default function MedicalRecordFormModal({
                 <input
                   type="date"
                   className="field__input"
+                  min={minFollowUpDate}
                   value={formData.followUpDate}
                   onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
                 />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Must be a future date after the record date.
+                </div>
               </div>
             </div>
           </div>
@@ -974,9 +1073,13 @@ export default function MedicalRecordFormModal({
                 <input
                   type="date"
                   className="field__input"
+                  min={minFollowUpDate}
                   value={formData.followUpDate}
                   onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
                 />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Must be a future date after the record date.
+                </div>
               </div>
             </div>
           </div>
@@ -1034,6 +1137,20 @@ export default function MedicalRecordFormModal({
                   required
                   style={{ resize: 'vertical' }}
                 />
+              </div>
+
+              <div className="field">
+                <label className="field__label">Next Clinical Review Date (Optional)</label>
+                <input
+                  type="date"
+                  className="field__input"
+                  min={minFollowUpDate}
+                  value={formData.followUpDate}
+                  onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
+                />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Must be a future date after the record date.
+                </div>
               </div>
             </div>
           </div>
@@ -1132,9 +1249,13 @@ export default function MedicalRecordFormModal({
                   <input
                     type="date"
                     className="field__input"
+                    min={minFollowUpDate}
                     value={formData.followUpDate}
                     onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
                   />
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Must be a future date after the record date.
+                  </div>
                 </div>
               </div>
             </div>

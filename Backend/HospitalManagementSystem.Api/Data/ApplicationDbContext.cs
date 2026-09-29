@@ -23,6 +23,7 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<TriageWorkflowEvent> TriageWorkflowEvents => Set<TriageWorkflowEvent>();
         public DbSet<MedicalRecord> MedicalRecords => Set<MedicalRecord>();
         public DbSet<MedicalRecordAttachment> MedicalRecordAttachments => Set<MedicalRecordAttachment>();
+        public DbSet<MedicalRecordNotification> MedicalRecordNotifications => Set<MedicalRecordNotification>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -47,7 +48,7 @@ namespace HospitalManagementSystem.Api.Data
                 {
                     t.HasCheckConstraint(
                         "CK_MedicalRecords_Status",
-                        "\"Status\" IN ('Draft', 'Finalized', 'Archived')");
+                        "\"Status\" IN ('Draft', 'Finalized')");
                     t.HasCheckConstraint(
                         "CK_MedicalRecords_RecordType",
                         "\"RecordType\" IN ('Consultation', 'LabReport', 'DischargeSummary', 'Prescription', 'GeneralNote')");

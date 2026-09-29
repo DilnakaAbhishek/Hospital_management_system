@@ -69,9 +69,11 @@ public sealed partial class PlanningCoordinatorAgent
             return true;
         }
         // Doctor directory / specialty searches take precedence over extensions unless
-        // the user is explicitly requesting their medical records/reports/prescriptions.
-        var isExplicitMedicalRecordQuery = Has(text, @"\b(my\s+records?|my\s+reports?|medical\s+records?|medical\s+reports?|lab\s+reports?|lab\s+results?|prescriptions?|discharge\s+summary|doctor\s+notes?)\b")
-            && !Has(text, @"\b(general\s+medicine\s+doctor|doctor\s+in\s+general\s+medicine|general\s+medicine)\b");
+        // the user is explicitly requesting their medical records/reports/prescriptions/diagnoses/symptoms.
+        var medicalRecordAgent = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.Capability.Id == "medical-reports");
+        var isExplicitMedicalRecordQuery = (medicalRecordAgent != null && medicalRecordAgent.CanHandle(text))
+            || (Has(text, @"\b(my\s+records?|my\s+reports?|medical\s+records?|medical\s+reports?|lab\s+reports?|lab\s+results?|prescriptions?|prescribed|medications?|medicines?|diagnos(is|es)|discharge\s+summary|doctor\s+notes?)\b")
+                && !Has(text, @"\b(general\s+medicine\s+doctor|doctor\s+in\s+general\s+medicine|general\s+medicine)\b"));
         var isDoctorOrSpecialtySearch = Has(text, @"\b(doctors?|specialists?|general medicine|cardiolog(y|ists?)|ophthalmolog(y|ists?)|dermatolog(y|ists?)|pediatric(s|ians?)|neurolog(y|ists?))\b");
 
         if (!isDoctorOrSpecialtySearch || isExplicitMedicalRecordQuery)
@@ -79,6 +81,8 @@ public sealed partial class PlanningCoordinatorAgent
             var extension = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
             if (extension != null)
             {
+                if (extension.Capability.Id == "medical-reports")
+                    await DispatchAsync(state, PlanningWorkflowType.MedicalRecords, "Medical Records", token);
                 Reply(state, await extension.ReadAsync(text, patient, token), "COMPLETED");
                 return true;
             }

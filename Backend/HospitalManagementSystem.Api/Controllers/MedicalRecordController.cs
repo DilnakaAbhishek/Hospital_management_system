@@ -1,13 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Claims;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using HospitalManagementSystem.Api.AgenticAI.MedicalReports;
+using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.DTOs;
+using HospitalManagementSystem.Api.Models;
+using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
 
 namespace HospitalManagementSystem.Api.Controllers
@@ -20,15 +27,24 @@ namespace HospitalManagementSystem.Api.Controllers
         private readonly IMedicalRecordService _service;
         private readonly ILogger<MedicalRecordController> _logger;
         private readonly IFileStorageService _fileStorageService;
+        private readonly ApplicationDbContext _db;
+        private readonly IMedicalRecordRepository _recordRepo;
+        private readonly IMedicalRecordIntelligenceAgent _intelligenceAgent;
 
         public MedicalRecordController(
             IMedicalRecordService service,
             ILogger<MedicalRecordController> logger,
-            IFileStorageService fileStorageService)
+            IFileStorageService fileStorageService,
+            ApplicationDbContext db,
+            IMedicalRecordRepository recordRepo,
+            IMedicalRecordIntelligenceAgent intelligenceAgent)
         {
             _service = service;
             _logger = logger;
             _fileStorageService = fileStorageService;
+            _db = db;
+            _recordRepo = recordRepo;
+            _intelligenceAgent = intelligenceAgent;
         }
 
         private (bool isAdmin, bool isDoctor, bool isPatient, string? email) GetUserContext()
@@ -219,6 +235,98 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(record);
         }
 
+        // GET /api/medicalrecord/{id}/ai-summary
+        [HttpGet("{id:int}/ai-summary")]
+        [Authorize(Roles = "Admin,Doctor,Patient")]
+        [ProducesResponseType(typeof(MedicalReportAnalysisResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetRecordAiSummary(int id, [FromQuery] string? query = null, CancellationToken cancellationToken = default)
+        {
+            var record = await _recordRepo.GetByIdAsync(id);
+            if (record == null)
+                return NotFound(new { message = $"Medical record with ID {id} was not found." });
+
+            var (isAdmin, isDoctor, _, email) = GetUserContext();
+            if (!isAdmin && !isDoctor)
+            {
+                if (string.IsNullOrWhiteSpace(email) ||
+                    string.IsNullOrWhiteSpace(record.Patient?.Email) ||
+                    !string.Equals(record.Patient.Email.Trim(), email.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to view this medical record." });
+                }
+            }
+            else if (isDoctor && !isAdmin)
+            {
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    var myDoctorId = await _service.GetDoctorIdByEmailAsync(email);
+                    if (!myDoctorId.HasValue || record.DoctorId != myDoctorId.Value)
+                    {
+                        return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to view this medical record." });
+                    }
+                }
+            }
+
+            var patientName = record.Patient != null ? $"{record.Patient.FirstName} {record.Patient.LastName}".Trim() : "Patient";
+            var analysis = await _intelligenceAgent.AnalyzeRecordsAsync(
+                new[] { record },
+                patientName,
+                query,
+                cancellationToken);
+
+            return Ok(analysis);
+        }
+
+        // GET /api/medicalrecord/patient/{patientId}/ai-summary
+        [HttpGet("patient/{patientId:int}/ai-summary")]
+        [Authorize(Roles = "Admin,Doctor,Patient")]
+        [ProducesResponseType(typeof(MedicalReportAnalysisResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetPatientAiSummary(int patientId, [FromQuery] string? query = null, CancellationToken cancellationToken = default)
+        {
+            var (isAdmin, isDoctor, _, email) = GetUserContext();
+
+            if (!isAdmin && !isDoctor)
+            {
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Token missing email claim." });
+
+                var myPatientId = await _service.GetPatientIdByEmailAsync(email);
+                if (!myPatientId.HasValue || myPatientId.Value != patientId)
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to view another patient's medical records." });
+            }
+
+            var records = await _recordRepo.GetByPatientIdAsync(patientId);
+            var recordList = records == null ? [] : records.Where(r => r.Status == MedicalRecordStatuses.Finalized).ToList();
+            if (recordList.Count == 0)
+            {
+                return Ok(new MedicalReportAnalysisResult(
+                    Overview: "No finalized records",
+                    KeyDiagnoses: [],
+                    PrescribedMedications: [],
+                    LabFindings: [],
+                    SafetyAlerts: [],
+                    FollowUpInstructions: null,
+                    PlainLanguageSummary: "No finalized medical records are available on file to summarize.",
+                    AgentTrajectoryDescription: "Retrieved 0 finalized records.",
+                    UsedGemini: false));
+            }
+
+            var patient = await _db.Patients.AsNoTracking().FirstOrDefaultAsync(p => p.PatientId == patientId, cancellationToken);
+            var patientName = patient != null ? $"{patient.FirstName} {patient.LastName}".Trim() : "Patient";
+
+            var analysis = await _intelligenceAgent.AnalyzeRecordsAsync(
+                recordList,
+                patientName,
+                query,
+                cancellationToken);
+
+            return Ok(analysis);
+        }
+
         // POST /api/medicalrecord
         [HttpPost]
         [Authorize(Roles = "Admin,Doctor,Patient")]
@@ -237,7 +345,40 @@ namespace HospitalManagementSystem.Api.Controllers
             {
                 var created = await _service.CreateRecordAsync(dto, email, role);
                 _logger.LogInformation("Medical record {Id} created for patient {PatientId}", created.MedicalRecordId, created.PatientId);
+
+                // ── Notification: Doctor/Admin finalizing a record → notify patient ───────
+                if ((isAdmin || isDoctor) && created.Status == MedicalRecordStatuses.Finalized)
+                {
+                    try
+                    {
+                        var patient = await _db.Patients.AsNoTracking()
+                            .FirstOrDefaultAsync(p => p.PatientId == created.PatientId);
+                        var patientUser = patient?.Email == null ? null : await _db.Users.AsNoTracking()
+                            .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == patient.Email.ToLower());
+                        var doctorLabel = isDoctor ? "Your doctor" : "The hospital team";
+                        var notification = new MedicalRecordNotification
+                        {
+                            MedicalRecordId = created.MedicalRecordId,
+                            RecipientRole = "Patient",
+                            RecipientUserId = patientUser?.UserId,
+                            Message = $"{doctorLabel} has added a new {created.RecordType} record to your file dated {created.RecordDate:MMM dd, yyyy}.",
+                            EventType = "RecordAdded",
+                        };
+                        _db.MedicalRecordNotifications.Add(notification);
+                        await _db.SaveChangesAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to create patient medical record notification for record {Id}.", created.MedicalRecordId);
+                    }
+                }
+                // ──────────────────────────────────────────────────────────────────────────
+
                 return CreatedAtAction(nameof(GetById), new { id = created.MedicalRecordId }, created);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -253,18 +394,26 @@ namespace HospitalManagementSystem.Api.Controllers
         [HttpPut("{id:int}")]
         [Authorize(Roles = "Admin,Doctor")]
         [ProducesResponseType(typeof(MedicalRecordDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateMedicalRecordDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var updated = await _service.UpdateRecordAsync(id, dto);
-            if (updated == null)
-                return NotFound(new { message = $"Medical record with ID {id} was not found." });
+            try
+            {
+                var updated = await _service.UpdateRecordAsync(id, dto);
+                if (updated == null)
+                    return NotFound(new { message = $"Medical record with ID {id} was not found." });
 
-            _logger.LogInformation("Medical record {Id} updated", id);
-            return Ok(updated);
+                _logger.LogInformation("Medical record {Id} updated", id);
+                return Ok(updated);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         // DELETE /api/medicalrecord/{id}
@@ -334,6 +483,36 @@ namespace HospitalManagementSystem.Api.Controllers
                 return NotFound(new { message = $"Medical record with ID {id} was not found." });
 
             _logger.LogInformation("Attachment file {FileName} uploaded for medical record {RecordId} to {FileUrl}", safeOriginalName, id, uploadedUrl);
+
+            // ── Notification: fire on attachment upload ────────────────────────────────
+            try
+            {
+                var isPatientUpload = !isAdmin && !isDoctor;
+                var targetRecord = await _db.MedicalRecords.AsNoTracking()
+                    .Include(r => r.Patient)
+                    .FirstOrDefaultAsync(r => r.MedicalRecordId == id);
+                var patientUser = targetRecord?.Patient?.Email == null ? null : await _db.Users.AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == targetRecord.Patient.Email.ToLower());
+
+                var notif = new MedicalRecordNotification
+                {
+                    MedicalRecordId = id,
+                    RecipientRole = isPatientUpload ? "Staff" : "Patient",
+                    RecipientUserId = isPatientUpload ? null : patientUser?.UserId,
+                    Message = isPatientUpload
+                        ? $"A patient has uploaded a new document '{safeOriginalName}' to their medical record (ID: {id})."
+                        : $"Your medical record (ID: {id}) has a new document '{safeOriginalName}' added by your care team.",
+                    EventType = "AttachmentUploaded",
+                };
+                _db.MedicalRecordNotifications.Add(notif);
+                await _db.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create attachment notification for record {Id}.", id);
+            }
+            // ──────────────────────────────────────────────────────────────────────────
+
             return StatusCode(StatusCodes.Status201Created, attachment);
         }
 
@@ -398,6 +577,34 @@ namespace HospitalManagementSystem.Api.Controllers
                 return NotFound(new { message = $"Medical record with ID {id} was not found." });
 
             _logger.LogInformation("Attachment {AttachmentId} added to medical record {RecordId}", attachment.AttachmentId, id);
+
+            // ── Notification: fire on attachment upload ────────────────────────────────
+            try
+            {
+                var isPatientUpload = !isAdmin && !isDoctor;
+                var safeName = Path.GetFileName(dto.FileName ?? "attachment");
+                var patientUser = record.PatientEmail == null ? null : await _db.Users.AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == record.PatientEmail.ToLower());
+
+                var notif = new MedicalRecordNotification
+                {
+                    MedicalRecordId = id,
+                    RecipientRole = isPatientUpload ? "Staff" : "Patient",
+                    RecipientUserId = isPatientUpload ? null : patientUser?.UserId,
+                    Message = isPatientUpload
+                        ? $"A patient has uploaded a new document '{safeName}' to their medical record (ID: {id})."
+                        : $"Your medical record (ID: {id}) has a new document '{safeName}' added by your care team.",
+                    EventType = "AttachmentUploaded",
+                };
+                _db.MedicalRecordNotifications.Add(notif);
+                await _db.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create attachment notification for record {Id}.", id);
+            }
+            // ──────────────────────────────────────────────────────────────────────────
+
             return StatusCode(StatusCodes.Status201Created, attachment);
         }
 

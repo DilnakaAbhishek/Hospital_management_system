@@ -276,7 +276,8 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
 
         // Routing is based on the patient's expressed purpose, not specialty/body-part words
         // returned by a model. An appointment-only request never enters triage.
-        if (medicalRecordsIntent && !hasSymptoms)
+        var isRecordedInquiry = Regex.IsMatch(objective, @"\b(recorded|past|previous|history|in\s+my\s+record|from\s+my\s+record|my\s+diagnosis|what\s+was\s+my|what\s+did\s+the\s+doctor\s+prescribe)\b", RegexOptions.IgnoreCase);
+        if (medicalRecordsIntent && (!hasSymptoms || isRecordedInquiry))
         {
             workflowType = PlanningWorkflowType.MedicalRecords;
         }
@@ -411,10 +412,10 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
 
     internal static bool IsHealthInformationQuestion(string text) =>
         Regex.IsMatch(text.Trim(), @"^(?:what\s+is|what'?s|tell\s+me\s+about|explain|information\s+about)\s+.+[?!.]*$", RegexOptions.IgnoreCase) &&
-        !Regex.IsMatch(text, @"\b(i|my|me)\b.*\b(have|had|feel|felt|was|were|bitten|scratched|exposed|hurt)\b", RegexOptions.IgnoreCase);
+        !Regex.IsMatch(text, @"\b(i|my|me)\b.*\b(have|had|feel|felt|was|were|bitten|scratched|exposed|hurt|record|records|report|reports|lab|labs|test|tests|result|results|finding|findings|diagnosis|prescription|prescriptions|medicine|medicines|medication|medications|doctor|symptom|symptoms|cholesterol)\b", RegexOptions.IgnoreCase);
 
     private static bool IsMedicalRecordsIntent(string text) => Regex.IsMatch(text,
-        @"\b(my|latest|last|previous)\b.*\b(medical records?|medical reports?|recorded diagnosis|prescriptions?|lab results?|test results?|follow-up instructions?|visit history)\b|\b(summarize|show|explain)\b.*\b(my (?:medical )?records?|my (?:medical )?reports?|my prescriptions?|my lab results?)\b",
+        @"\b(my|latest|last|previous)\b.*\b(medical records?|medical reports?|recorded diagnosis|prescriptions?|prescribed|medications?|medicines?|lab results?|test results?|lab\s*findings?|cholesterol|follow-up instructions?|visit history|typed\s*(medical\s*)?data|treatment\s*plan|symptoms|recorded\s+symptoms?|attachments?)\b|\b(summarize|show|explain|get|view|tell me about|details? of)\b.*\b(my (?:medical )?records?|my (?:medical )?reports?|my prescriptions?|my lab results?|my\s+.*lab|my\s+.*cholesterol|medical records?|treatment plan|typed data|uploaded (?:file|files|document|documents)|attachments?)\b|\b(what\s+is\s+in\s+my\s+medical\s+record|medical\s+record\s+details?|what\s+was\s+my\s+diagnosis|what\s+are\s+my\s+recorded\s+symptoms|what\s+did\s+the\s+doctor\s+prescribe)\b|\b(diagnosis|prescriptions?|medications?|prescribed)\b.*\b(doctor|record|records|visit)\b",
         RegexOptions.IgnoreCase);
 
     private static bool IsAppointmentCancellationIntent(string text) =>

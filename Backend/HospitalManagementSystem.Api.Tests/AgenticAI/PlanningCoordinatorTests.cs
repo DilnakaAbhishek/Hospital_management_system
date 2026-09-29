@@ -107,6 +107,8 @@ public class PlanningCoordinatorTests
 
     [Theory]
     [InlineData("Summarize my medical records", "MedicalRecords", false)]
+    [InlineData("What was my diagnosis and what medications did the doctor prescribe?", "MedicalRecords", false)]
+    [InlineData("What are my recorded symptoms?", "MedicalRecords", false)]
     [InlineData("Cancel my appointment", "AppointmentCancellation", true)]
     [InlineData("Reschedule my appointment", "AppointmentReschedule", true)]
     public async Task CoordinatorCorrectsSpecializedPatientWorkflowRoutes(

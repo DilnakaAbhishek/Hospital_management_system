@@ -135,6 +135,56 @@ namespace HospitalManagementSystem.Api.Services
             return await UploadAsync(ms, fileName, contentType, folder, cancellationToken);
         }
 
+        public async Task<byte[]?> DownloadBytesAsync(string fileUrl, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(fileUrl)) return null;
+
+            // Handle data URI if stored directly
+            if (fileUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                var commaIndex = fileUrl.IndexOf(',');
+                if (commaIndex > 0)
+                {
+                    try
+                    {
+                        return Convert.FromBase64String(fileUrl[(commaIndex + 1)..]);
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+                }
+            }
+
+            if (!_isConfigured) return null;
+
+            try
+            {
+                string objectKey = fileUrl;
+                if (Uri.TryCreate(fileUrl, UriKind.Absolute, out var uri))
+                {
+                    objectKey = uri.AbsolutePath.TrimStart('/');
+                }
+
+                using var client = CreateS3Client();
+                var getRequest = new GetObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = objectKey
+                };
+
+                using var response = await client.GetObjectAsync(getRequest, cancellationToken);
+                using var ms = new MemoryStream();
+                await response.ResponseStream.CopyToAsync(ms, cancellationToken);
+                return ms.ToArray();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to download file from Cloudflare R2: {FileUrl}", fileUrl);
+                return null;
+            }
+        }
+
         public async Task<bool> DeleteAsync(string fileUrl, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(fileUrl) || !_isConfigured) return false;

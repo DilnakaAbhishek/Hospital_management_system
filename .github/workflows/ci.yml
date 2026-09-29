@@ -1,0 +1,152 @@
+name: MediCore CI
+
+on:
+  push:
+    branches: [Develop, main, CI-Branch]
+  pull_request:
+    branches: [Develop, main, CI-Branch]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  #  Job 1 - ASP.NET Core Backend (Build + Test)
+  # ─────────────────────────────────────────────
+  backend:
+    name: Backend (.NET 8)
+    runs-on: ubuntu-latest
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore NuGet packages
+        run: dotnet restore Backend/HospitalManagementSystem.Api/HospitalManagementSystem.Api.csproj
+
+      - name: Restore test NuGet packages
+        run: dotnet restore Backend/HospitalManagementSystem.Api.Tests/HospitalManagementSystem.Api.Tests.csproj
+
+      - name: Build API
+        run: dotnet build Backend/HospitalManagementSystem.Api/HospitalManagementSystem.Api.csproj --no-restore --configuration Release
+
+      - name: Build Tests
+        run: dotnet build Backend/HospitalManagementSystem.Api.Tests/HospitalManagementSystem.Api.Tests.csproj --no-restore --configuration Release
+
+      - name: Create test appsettings.json
+        run: |
+          cat > Backend/HospitalManagementSystem.Api/appsettings.json <<'EOF'
+          {
+            "ConnectionStrings": {
+              "DefaultConnection": "Host=localhost;Database=test_db;Username=test;Password=test"
+            },
+            "Jwt": {
+              "Secret": "ci-test-only-jwt-secret-change-before-production-2026",
+              "Issuer": "MediCore.Api",
+              "Audience": "MediCore.Client"
+            },
+            "Gemini": {
+              "ApiKey": "",
+              "Model": "gemini-3.5-flash-lite",
+              "AppointmentModel": "gemini-3.5-flash-lite",
+              "AssessmentModel": "gemini-3.5-flash-lite",
+              "TimeoutSeconds": 30
+            },
+            "Sms": { "Provider": "Mock" },
+            "Cors": { "AllowedOrigins": ["http://localhost:5173"] },
+            "AllowedHosts": "*",
+            "Logging": { "LogLevel": { "Default": "Warning" } }
+          }
+          EOF
+
+      - name: Run backend tests
+        run: >
+          dotnet test Backend/HospitalManagementSystem.Api.Tests/HospitalManagementSystem.Api.Tests.csproj
+          --no-build
+          --configuration Release
+          --logger "trx;LogFileName=test-results.trx"
+          --logger "console;verbosity=normal"
+          --results-directory ./test-results/backend
+        env:
+          Gemini__ApiKey: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: ./test-results/backend
+
+  # ─────────────────────────────────────────────
+  #  Job 2 - React / Vite Frontend Web
+  # ─────────────────────────────────────────────
+  frontend-web:
+    name: Frontend Web (React + Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend-Web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: Frontend-Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-web-dist
+          path: Frontend-Web/dist
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  #  Job 3 - Flutter Mobile (Analyse + Test)
+  # ─────────────────────────────────────────────
+  frontend-mobile:
+    name: Frontend Mobile (Flutter)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend-Mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Verify Flutter installation
+        run: flutter doctor -v
+
+      - name: Analyse Dart code
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Flutter unit tests
+        run: flutter test --reporter compact
+
+      - name: Build Flutter web (smoke check)
+        run: flutter build web --release

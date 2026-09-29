@@ -14,6 +14,7 @@ using HospitalManagementSystem.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Configuration;
+using HospitalManagementSystem.Api.AgenticAI.MedicalReports;
 using Xunit;
 
 namespace HospitalManagementSystem.Api.Tests.AgenticAI;
@@ -1285,7 +1286,9 @@ public sealed class HospitalAssistantTests
         public AssistantActionRequest Confirm(AssistantPendingAction action) => new() {
             ActionId = action.ActionId, Decision = "confirm", RequestId = Guid.NewGuid(), DoctorTimeSlotId = action.Slots[0].DoctorTimeSlotId
         };
-        public static async Task<Harness> Create(HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator.IPlanningModelClient? model = null)
+        public static async Task<Harness> Create(
+            HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator.IPlanningModelClient? model = null,
+            IEnumerable<IHospitalAssistantReadAgent>? additionalAgents = null)
         {
             var db = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
             var tomorrow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, AppointmentAgentTools.HospitalTimeZone).Date.AddDays(1).AddHours(13.5);
@@ -1298,7 +1301,7 @@ public sealed class HospitalAssistantTests
             var tools = new FakeTools(appointments, slot);
             var workflows = TriageWorkflowServiceTests.CreateService(db, new TestSafeTriageAgents { UseChoiceQuestion = true });
             var intent = new FakeIntentClient();
-            return new() { Db = db, Workflows = workflows, Intent = intent, Service = new(db, new AssistantAgentRegistry([]), workflows,
+            return new() { Db = db, Workflows = workflows, Intent = intent, Service = new(db, new AssistantAgentRegistry(additionalAgents ?? []), workflows,
                 new HospitalAppointmentProposalAgent(tools, new AppointmentProposalStore(db)),
                 new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments, SmsTestSupport.Create(db), intent, model) };
         }
@@ -1346,6 +1349,65 @@ public sealed class HospitalAssistantTests
         // The new prompt must be evaluated freshly, generate questions, and not be blocked by turn 2's previous warning sign
         Assert.NotEmpty(turn3.Questions);
         Assert.Equal("GATHERING_INFORMATION", turn3.State);
+    }
+
+    [Fact]
+    public async Task MedicalRecordsAssistant_RoutesDiagnosisMedicationAndSymptomsToMedicalAgent()
+    {
+        var record = new MedicalRecord
+        {
+            MedicalRecordId = 1,
+            PatientId = 1,
+            RecordDate = new DateTime(2026, 9, 15),
+            Status = MedicalRecordStatuses.Finalized,
+            Diagnosis = "Hypertension and Bronchitis",
+            Symptoms = "Morning cough, occasional chest tightness",
+            TreatmentPlan = "Inhaler, rest, low sodium",
+            PrescriptionNotes = "Salbutamol 100mcg, Amlodipine 5mg",
+            LabNotes = "Lipid Panel: Total Cholesterol 220 mg/dL, LDL 140 mg/dL, HDL 45 mg/dL, Triglycerides 175 mg/dL"
+        };
+
+        Harness? h = null;
+        try
+        {
+            var db = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+            db.MedicalRecords.Add(record);
+            await db.SaveChangesAsync();
+
+            var medicalAgent = new MedicalReportAssistantAgent(
+                new MedicalRecordRepository(db),
+                new GeminiMedicalRecordClient(new HttpClient(), new ConfigurationBuilder().Build(), NullLogger<GeminiMedicalRecordClient>.Instance));
+
+            h = await Harness.Create(additionalAgents: [medicalAgent]);
+            h.Db.MedicalRecords.Add(record);
+            await h.Db.SaveChangesAsync();
+
+            // Turn 1: "What was my diagnosis and what medications did the doctor prescribe?"
+            var turn1 = await h.Send("What was my diagnosis and what medications did the doctor prescribe?");
+            Assert.Equal("COMPLETED", turn1.State);
+            var text1 = turn1.Messages.Last().Text;
+            Assert.DoesNotContain("No approved doctors matched", text1);
+            Assert.Contains("Hypertension and Bronchitis", text1);
+            Assert.Contains("Salbutamol 100mcg", text1);
+
+            // Turn 2: "What are my recorded symptoms?"
+            var turn2 = await h.Send("What are my recorded symptoms?", turn1.ConversationId);
+            Assert.Equal("COMPLETED", turn2.State);
+            var text2 = turn2.Messages.Last().Text;
+            Assert.DoesNotContain("outside the currently supported triage scope", text2);
+            Assert.Contains("Morning cough, occasional chest tightness", text2);
+
+            // Turn 3: "Explain my latest lab results and cholesterol findings"
+            var turn3 = await h.Send("Explain my latest lab results and cholesterol findings", turn1.ConversationId);
+            Assert.Equal("COMPLETED", turn3.State);
+            var text3 = turn3.Messages.Last().Text;
+            Assert.DoesNotContain("I cannot interpret personal lab results", text3);
+            Assert.Contains("Total Cholesterol 220 mg/dL", text3);
+        }
+        finally
+        {
+            if (h != null) await h.DisposeAsync();
+        }
     }
 
     private sealed class FakeIntentClient : IAssessmentIntentClient
