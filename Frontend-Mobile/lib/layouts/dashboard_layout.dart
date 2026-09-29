@@ -3248,56 +3248,6 @@ class _SurfaceCard extends StatelessWidget {
   }
 }
 
-class _InfoPanel extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final String trailing;
-
-  const _InfoPanel({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _SurfaceCard(
-      child: Row(
-        children: [
-          CircleAvatar(
-              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-              child: Icon(icon, color: AppColors.primary)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 3),
-                Text(subtitle,
-                    style: const TextStyle(
-                        color: AppColors.textMutedLight,
-                        fontSize: 12,
-                        height: 1.35)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(trailing,
-              style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900)),
-        ],
-      ),
-    );
-  }
-}
-
 class _AppointmentCard extends StatelessWidget {
   final Appointment appointment;
   final bool compact;

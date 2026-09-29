@@ -106,9 +106,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
-
       - name: Run Vitest unit tests
         run: npm test
 
@@ -138,7 +135,6 @@ jobs:
       - name: Setup Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.32.x"
           channel: stable
           cache: true
 

@@ -32,7 +32,9 @@ void main() {
           'createdAt': '2026-09-07T08:00:00Z',
         }]);
       }
-      if (request.url.path == '/api/triage-workflows/notifications') {
+      if (request.url.path == '/api/triage-workflows/notifications' ||
+          request.url.path == '/api/medicalrecord/notifications/patient' ||
+          request.url.path == '/api/medicalrecord/notifications') {
         return jsonResponse([]);
       }
       return jsonResponse({'data': []});
@@ -267,6 +269,14 @@ Future<void> pumpAppointmentsDashboard(
     if (request.method == 'GET' &&
         request.url.path == '/api/appointment/specializations') {
       return jsonResponse(['Cardiology']);
+    }
+
+    if (request.method == 'GET' &&
+        (request.url.path == '/api/medicalrecord/notifications/patient' ||
+         request.url.path == '/api/medicalrecord/notifications' ||
+         request.url.path == '/api/appointment/notifications' ||
+         request.url.path == '/api/triage-workflows/notifications')) {
+      return jsonResponse([]);
     }
 
     if (request.method == 'POST' && request.url.path == '/api/appointment') {

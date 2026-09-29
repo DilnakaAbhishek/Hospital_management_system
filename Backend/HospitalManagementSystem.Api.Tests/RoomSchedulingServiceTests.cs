@@ -35,7 +35,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(2);
+        var start = DateTime.UtcNow.Date.AddDays(2).AddHours(9);
         var end = start.AddHours(2);
         await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, end));
 
@@ -51,7 +51,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(3);
+        var start = DateTime.UtcNow.Date.AddDays(3).AddHours(9);
         await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -66,7 +66,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(3);
+        var start = DateTime.UtcNow.Date.AddDays(3).AddHours(9);
         var first = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
         var second = await service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddHours(1).AddMinutes(30), start.AddHours(2)));
 
@@ -99,7 +99,7 @@ public class RoomSchedulingServiceTests
         var setup = await SeedSchedulingDataAsync(db);
         var scheduleService = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var roomService = new RoomService(db);
-        var start = DateTime.UtcNow.AddDays(4);
+        var start = DateTime.UtcNow.Date.AddDays(4).AddHours(9);
         var end = start.AddHours(1);
         var schedule = await scheduleService.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, end));
         await scheduleService.CancelAsync(setup.FirstUserId, schedule.DoctorTimeSlotId);
@@ -115,7 +115,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(5);
+        var start = DateTime.UtcNow.Date.AddDays(5).AddHours(9);
         await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
 
         var secondDoctorsSchedules = await service.GetMineAsync(setup.SecondUserId);
@@ -143,7 +143,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(6);
+        var start = DateTime.UtcNow.Date.AddDays(6).AddHours(9);
         var dto = Schedule(setup.RoomId, start, start.AddHours(1));
         dto.ConsultationFee = 0;
 
@@ -158,7 +158,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(7);
+        var start = DateTime.UtcNow.Date.AddDays(7).AddHours(9);
         var dto = Schedule(setup.RoomId, start, start.AddHours(1));
         var schedule = await service.CreateAsync(setup.FirstUserId, dto);
         db.Appointments.Add(new Appointment
@@ -190,7 +190,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(7);
+        var start = DateTime.UtcNow.Date.AddDays(7).AddHours(9);
         var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
         db.Appointments.Add(new Appointment { DoctorTimeSlotId = schedule.DoctorTimeSlotId,
             AppointmentNumber = 5, Status = "Confirmed" });
@@ -215,7 +215,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(8);
+        var start = DateTime.UtcNow.Date.AddDays(8).AddHours(9);
         var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
 
         var deleted = await service.DeleteAsync(setup.FirstUserId, schedule.DoctorTimeSlotId);
@@ -230,7 +230,7 @@ public class RoomSchedulingServiceTests
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
-        var start = DateTime.UtcNow.AddDays(5);
+        var start = DateTime.UtcNow.Date.AddDays(5).AddHours(9);
         var dto = Schedule(setup.RoomId, start, start.AddHours(1));
         dto.Capacity = 51;
 
@@ -249,7 +249,7 @@ public class RoomSchedulingServiceTests
         var doctor = await db.Doctors.SingleAsync(d => d.UserId == setup.FirstUserId);
 
         // Seed 50 active future slots for this doctor
-        var baseDate = DateTime.UtcNow.AddDays(10);
+        var baseDate = DateTime.UtcNow.Date.AddDays(10).AddHours(9);
         for (int i = 0; i < 50; i++)
         {
             var dummyRoom = new Room { RoomNumber = $"R-{i + 100}", RoomName = $"Room {i}", Floor = "1", IsConfirmed = true };
