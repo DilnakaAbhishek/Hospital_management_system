@@ -1,0 +1,83 @@
+.patient-form { display: flex; flex-direction: column; gap: var(--space-xl); }
+
+.patient-form__error {
+  padding: 10px 12px;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--clr-danger);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.form-section { display: flex; flex-direction: column; gap: var(--space-md); }
+
+.form-section__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--clr-primary);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.form-grid { display: grid; gap: var(--space-md); }
+.form-grid--2 { grid-template-columns: 1fr 1fr; }
+.form-grid__span-2 { grid-column: span 2; }
+
+@media (max-width: 600px) {
+  .form-grid--2 { grid-template-columns: 1fr; }
+  .form-grid__span-2 { grid-column: span 1; }
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.field__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.field__required { color: var(--clr-danger); margin-left: 2px; }
+
+.field__input {
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 10px var(--space-md);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  width: 100%;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.field__input:focus {
+  border-color: var(--clr-primary);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+  background: var(--bg-surface);
+}
+
+.field__input::placeholder { color: var(--text-muted); }
+
+.field__select {
+  appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.field__select option {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-default);
+}

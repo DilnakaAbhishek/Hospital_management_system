@@ -1,0 +1,120 @@
+.doctor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.doctors__search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 8px 14px;
+  flex: 1;
+  max-width: 420px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.doctors__search-wrap:focus-within {
+  border-color: var(--clr-primary);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+}
+
+.doctors__search-wrap--filtering {
+  border-color: var(--clr-primary);
+}
+
+.doctors__search-wrap--filtering .doctors__search-icon {
+  color: var(--clr-primary);
+  animation: doctors-search-pulse 0.8s ease-in-out infinite alternate;
+}
+
+.doctors__search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.doctors__search-wrap input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.doctors__search-status {
+  min-height: 18px;
+  margin: -14px 0 10px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+@keyframes doctors-search-pulse {
+  from { opacity: 0.45; }
+  to { opacity: 1; }
+}
+
+.doctor-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.doctor-tabs button {
+  padding: 8px 18px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.doctor-tabs button:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.doctor-tabs button.active {
+  background: var(--clr-primary);
+  color: white;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+.doctor-request-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.doctor-empty {
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border: 1px dashed var(--border-default);
+  border-radius: 18px;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 700px) {
+  .doctor-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .doctors__search-wrap {
+    max-width: 100%;
+  }
+}

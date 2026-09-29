@@ -1,0 +1,97 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+  letter-spacing: 0.01em;
+}
+
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn--sm { padding: 6px 12px; font-size: 0.78rem; }
+.btn--md { padding: 9px 18px; font-size: 0.86rem; }
+.btn--lg { padding: 12px 24px; font-size: 0.92rem; }
+.btn--full { width: 100%; }
+
+.btn--primary {
+  background: var(--clr-primary);
+  color: white;
+  box-shadow: 0 2px 6px rgba(14, 165, 233, 0.25);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--clr-primary-dark);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+}
+
+.btn--accent {
+  background: var(--clr-accent);
+  color: white;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+}
+.btn--accent:hover:not(:disabled) {
+  background: var(--clr-accent-dark);
+}
+
+.btn--success {
+  background: var(--clr-success);
+  color: white;
+}
+
+.btn--danger {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.25);
+  color: var(--clr-danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--clr-danger);
+  color: white;
+}
+
+.btn--secondary {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+.btn--secondary:hover:not(:disabled) {
+  background: var(--bg-surface-2);
+  border-color: var(--clr-primary);
+  color: var(--clr-primary);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+}
+
+.btn--outline {
+  background: transparent;
+  border-color: var(--clr-primary);
+  color: var(--clr-primary);
+}
+.btn--outline:hover:not(:disabled) {
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.btn__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
