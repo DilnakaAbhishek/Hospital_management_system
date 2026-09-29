@@ -71,7 +71,8 @@ jobs:
           dotnet test Backend/HospitalManagementSystem.Api.Tests/HospitalManagementSystem.Api.Tests.csproj
           --no-build
           --configuration Release
-          --logger "github"
+          --logger "trx;LogFileName=test-results.trx"
+          --logger "console;verbosity=normal"
           --results-directory ./test-results/backend
         env:
           Gemini__ApiKey: ${{ secrets.GEMINI_API_KEY }}
