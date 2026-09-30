@@ -168,10 +168,6 @@ body.dark .login-page__blob { opacity: 0.25; }
   cursor: pointer;
 }
 
-.login-form__forgot {
-  color: var(--clr-primary);
-  font-weight: 600;
-}
 
 .login-card__footer {
   text-align: center;

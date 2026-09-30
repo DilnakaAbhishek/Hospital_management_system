@@ -136,7 +136,6 @@ export default function LoginPage() {
               <input type="checkbox" id="remember" />
               Remember me
             </label>
-            <a href="#" className="login-form__forgot">Forgot password?</a>
           </div>
 
           {error && (
