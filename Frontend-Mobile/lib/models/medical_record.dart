@@ -42,6 +42,29 @@ class MedicalRecordAttachment {
       'uploadedAt': uploadedAt.toIso8601String(),
     };
   }
+
+  String get cleanFileName {
+    return fileName
+        .replaceFirst(RegExp(r'^[a-fA-F0-9]{32}_'), '')
+        .replaceFirst(RegExp(r'^[a-fA-F0-9-]{36}_'), '');
+  }
+
+  bool get isImage {
+    final lowerType = fileType.toLowerCase();
+    final lowerName = fileName.toLowerCase();
+    return lowerType.contains('image') ||
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.webp') ||
+        lowerName.endsWith('.gif');
+  }
+
+  bool get isPdf {
+    final lowerType = fileType.toLowerCase();
+    final lowerName = fileName.toLowerCase();
+    return lowerType.contains('pdf') || lowerName.endsWith('.pdf');
+  }
 }
 
 class MedicalRecord {

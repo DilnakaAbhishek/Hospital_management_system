@@ -1087,4 +1087,34 @@ class ApiService {
 
     throw Exception(_errorMessage(response.body));
   }
+
+  static Future<Uint8List> downloadAttachmentBytes(
+    int attachmentId, {
+    int? recordId,
+    String? fallbackUrl,
+  }) async {
+    final headers = await _authHeaders();
+    final url = recordId != null
+        ? '$baseUrl/medicalrecord/$recordId/attachments/$attachmentId/download'
+        : '$baseUrl/medicalrecord/attachments/$attachmentId/download';
+
+    try {
+      final response = await http.get(Uri.parse(url), headers: headers);
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.bodyBytes.isNotEmpty) {
+        return response.bodyBytes;
+      }
+    } catch (_) {}
+
+    if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
+      final fullUrl = fallbackUrl.startsWith('http')
+          ? fallbackUrl
+          : '${baseUrl.replaceAll('/api', '')}${fallbackUrl.startsWith('/') ? '' : '/'}$fallbackUrl';
+      final response = await http.get(Uri.parse(fullUrl));
+      if (response.statusCode >= 200 && response.statusCode < 300 && response.bodyBytes.isNotEmpty) {
+        return response.bodyBytes;
+      }
+    }
+
+    throw Exception('Failed to download attachment content');
+  }
 }

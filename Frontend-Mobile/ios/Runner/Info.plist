@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MediCore needs permission to save medical images, reports, and scans to your photo gallery.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MediCore needs permission to access your photo gallery to view and save medical records.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

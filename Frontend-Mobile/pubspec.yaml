@@ -20,6 +20,8 @@ dependencies:
   http_parser: ^4.0.2
   file_picker: ^11.0.3
   url_launcher: ^6.3.2
+  gal: ^2.3.3
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

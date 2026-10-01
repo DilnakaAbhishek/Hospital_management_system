@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:medicore_mobile/core/constants/app_colors.dart';
 import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/core/services/attachment_saver.dart';
 import 'package:medicore_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
 import 'package:medicore_mobile/models/medical_record.dart';
 
@@ -29,6 +30,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
   bool _uploading = false;
   bool _isAdmin = false;
   bool _isAdminOrDoctor = false;
+  final Set<int> _downloadingIds = {};
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -208,24 +210,126 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
     }
   }
 
-  Future<void> _openAttachment(MedicalRecordAttachment att) async {
-    final fullUrl = att.fileUrl.startsWith('http')
-        ? att.fileUrl
-        : '${ApiService.baseUrl.replaceAll('/api', '')}${att.fileUrl.startsWith('/') ? '' : '/'}${att.fileUrl}';
+  Future<void> _downloadAttachment(MedicalRecordAttachment att) async {
+    if (_downloadingIds.contains(att.attachmentId)) return;
+
+    setState(() {
+      _downloadingIds.add(att.attachmentId);
+    });
+
+    final isImg = att.isImage;
+    final displayName = att.cleanFileName;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                isImg
+                    ? 'Saving image to gallery: $displayName...'
+                    : 'Downloading $displayName...',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
 
     try {
-      final uri = Uri.parse(fullUrl);
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched && mounted) {
+      final bytes = await ApiService.downloadAttachmentBytes(
+        att.attachmentId,
+        recordId: _record.medicalRecordId,
+        fallbackUrl: att.fileUrl,
+      );
+
+      final result = await saveAttachment(
+        bytes: bytes,
+        fileName: displayName,
+        isImage: isImg,
+        mimeType: att.fileType,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open file in external app')),
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  isImg ? Icons.photo_library_rounded : Icons.check_circle_outline,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    result.message,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+            action: isImg
+                ? SnackBarAction(
+                    label: 'View',
+                    textColor: Colors.white,
+                    onPressed: () => openGalleryApp(),
+                  )
+                : (result.savedPath != null
+                    ? SnackBarAction(
+                        label: 'Open',
+                        textColor: Colors.white,
+                        onPressed: () async {
+                          try {
+                            await launchUrl(Uri.file(result.savedPath!));
+                          } catch (_) {}
+                        },
+                      )
+                    : null),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.message),
+            backgroundColor: AppColors.danger,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Download failed: $e'),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening file: $e')),
-        );
+        setState(() {
+          _downloadingIds.remove(att.attachmentId);
+        });
       }
     }
   }
@@ -235,7 +339,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Attachment'),
-        content: Text('Are you sure you want to remove "${att.fileName}"?'),
+        content: Text('Are you sure you want to remove "${att.cleanFileName}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -458,13 +562,15 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                         ),
                         onPressed: () async {
                           Navigator.pop(ctx);
+                          final scaffoldMessenger = ScaffoldMessenger.of(context);
+                          final nav = Navigator.of(context);
                           try {
                             await ApiService.deleteMedicalRecord(_record.medicalRecordId);
                             widget.onRecordUpdated?.call();
-                            if (mounted) Navigator.pop(context);
+                            if (mounted) nav.pop();
                           } catch (e) {
                             if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            scaffoldMessenger.showSnackBar(
                               SnackBar(
                                 content: Text('Delete failed: $e'),
                                 backgroundColor: AppColors.danger,
@@ -665,12 +771,9 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final att = _record.attachments[index];
-                        final isPdf = att.fileName.toLowerCase().endsWith('.pdf') ||
-                            att.fileType.toLowerCase().contains('pdf');
-                        final isImage = att.fileType.toLowerCase().contains('image') ||
-                            att.fileName.toLowerCase().endsWith('.jpg') ||
-                            att.fileName.toLowerCase().endsWith('.jpeg') ||
-                            att.fileName.toLowerCase().endsWith('.png');
+                        final isPdf = att.isPdf;
+                        final isImage = att.isImage;
+                        final isDownloading = _downloadingIds.contains(att.attachmentId);
 
                         return Container(
                           padding: const EdgeInsets.all(12),
@@ -701,7 +804,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      att.fileName,
+                                      att.cleanFileName,
                                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -718,12 +821,31 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                                 tooltip: 'Preview',
                                 onPressed: () => _previewAttachment(att),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.download_rounded, size: 20),
-                                color: Colors.teal,
-                                tooltip: 'Download / Open',
-                                onPressed: () => _openAttachment(att),
-                              ),
+                              if (isDownloading)
+                                const SizedBox(
+                                  width: 40,
+                                  height: 40,
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.teal,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                IconButton(
+                                  icon: Icon(
+                                    isImage ? Icons.save_alt_rounded : Icons.download_rounded,
+                                    size: 20,
+                                  ),
+                                  color: Colors.teal,
+                                  tooltip: isImage ? 'Save image to gallery' : 'Download document',
+                                  onPressed: () => _downloadAttachment(att),
+                                ),
                               if (_isAdminOrDoctor)
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline, size: 20),
@@ -747,12 +869,8 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
   }
 
   void _previewAttachment(MedicalRecordAttachment att) {
-    final isPdf = att.fileName.toLowerCase().endsWith('.pdf') ||
-        att.fileType.toLowerCase().contains('pdf');
-    final isImage = att.fileType.toLowerCase().contains('image') ||
-        att.fileName.toLowerCase().endsWith('.jpg') ||
-        att.fileName.toLowerCase().endsWith('.jpeg') ||
-        att.fileName.toLowerCase().endsWith('.png');
+    final isPdf = att.isPdf;
+    final isImage = att.isImage;
 
     final fullUrl = att.fileUrl.startsWith('http')
         ? att.fileUrl
@@ -772,7 +890,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      att.fileName,
+                      att.cleanFileName,
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -801,7 +919,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                           const Icon(Icons.broken_image_rounded, size: 36, color: Colors.grey),
                           const SizedBox(height: 6),
                           Text(
-                            att.fileName,
+                            att.cleanFileName,
                             style: const TextStyle(color: Colors.grey, fontSize: 12),
                           ),
                         ],
@@ -826,7 +944,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        att.fileName,
+                        att.cleanFileName,
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
@@ -856,15 +974,18 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                     child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        _openAttachment(att);
+                        _downloadAttachment(att);
                       },
-                      icon: const Icon(Icons.download_rounded, size: 16),
+                      icon: Icon(
+                        isImage ? Icons.photo_library_outlined : Icons.download_rounded,
+                        size: 16,
+                      ),
                       label: Text(
-                        isPdf ? 'Download PDF' : (isImage ? 'Download / View' : 'Download'),
+                        isImage ? 'Save to Gallery' : (isPdf ? 'Download PDF' : 'Download File'),
                         overflow: TextOverflow.ellipsis,
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isPdf ? Colors.redAccent : AppColors.primary,
+                        backgroundColor: isImage ? Colors.teal : (isPdf ? Colors.redAccent : AppColors.primary),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
