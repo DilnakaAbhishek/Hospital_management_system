@@ -59,7 +59,8 @@ From the repository root:
 dotnet run --project Backend/HospitalManagementSystem.Api --launch-profile http
 ```
 
-Once running:
+Once running / deployed:
+- **Deployment Status Page**: [http://localhost:5000/](http://localhost:5000/) (Displays deployment status badge, active environment, and quick links)
 - **Swagger UI**: [http://localhost:5000/swagger](http://localhost:5000/swagger)
 - **Health Check**: [http://localhost:5000/health](http://localhost:5000/health)
 
