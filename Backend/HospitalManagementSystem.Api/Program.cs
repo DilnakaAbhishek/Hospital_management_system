@@ -22,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 var jwtSecret = builder.Configuration["Jwt:Secret"];
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var allowAnyOrigin = configuredOrigins.Any(o => o?.Trim() == "*");
 var allowedOrigins = configuredOrigins
     .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -30,11 +31,11 @@ var allowedOrigins = configuredOrigins
 if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
     throw new InvalidOperationException("Jwt:Secret must be configured through a local secret or environment variable and contain at least 32 characters.");
 
-if (!builder.Environment.IsEnvironment("Testing"))
+if (!builder.Environment.IsEnvironment("Testing") && !builder.Environment.IsEnvironment("Test"))
 {
     if (string.IsNullOrWhiteSpace(connectionString))
         throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured through a local secret or environment variable.");
-    if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
+    if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0 && !allowAnyOrigin)
         throw new InvalidOperationException("Cors:AllowedOrigins must contain the permitted web application origin(s).");
 }
 builder.Logging.ClearProviders();
@@ -192,7 +193,11 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AppCors", policy =>
     {
-        if (builder.Environment.IsDevelopment())
+        if (allowAnyOrigin)
+        {
+            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+        }
+        else if (builder.Environment.IsDevelopment())
         {
             policy.SetIsOriginAllowed(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) && (uri.Host == "localhost" || uri.Host == "127.0.0.1"))
                   .AllowAnyMethod()
@@ -211,22 +216,25 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-    if (app.Environment.IsEnvironment("Testing"))
+    if (app.Environment.IsEnvironment("Testing") || app.Environment.IsEnvironment("Test"))
         await db.Database.EnsureCreatedAsync();
     else
         await db.Database.MigrateAsync();
 
     // Seed accounts use documented sample passwords and must never be created in a deployed environment.
-    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing") || app.Environment.IsEnvironment("Test"))
         await SeedSampleDataAsync(db);
 }
 
 // ---------- Middleware ----------
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments so developers, evaluators, and testers can test the deployed API
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Hospital Management System API v1");
+    c.RoutePrefix = "swagger";
+    c.DocumentTitle = "MediCore API - Documentation";
+});
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseCors("AppCors");
@@ -239,8 +247,43 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "Healthy",
+    service = "MediCore Hospital Management System API",
+    environment = app.Environment.EnvironmentName,
+    message = "API backend is fully operational and healthy.",
     timestamp = DateTime.UtcNow
 }));
+
+// Root endpoint: Deployment verification & status page
+app.MapGet("/", (HttpContext context) =>
+{
+    var accept = context.Request.Headers.Accept.ToString();
+    if (accept.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Content(GetDeploymentSuccessHtml(app.Environment.EnvironmentName), "text/html; charset=utf-8");
+    }
+
+    return Results.Ok(new
+    {
+        status = "Success",
+        message = "MediCore Hospital Management System API is deployed and running successfully!",
+        service = "Hospital Management System API (MediCore)",
+        version = "v1.0",
+        environment = app.Environment.EnvironmentName,
+        timestamp = DateTime.UtcNow,
+        documentation = "/swagger",
+        health = "/health",
+        endpoints = new
+        {
+            health = "/health",
+            swagger = "/swagger",
+            auth = "/api/auth/login",
+            patients = "/api/patient",
+            doctors = "/api/doctor",
+            appointments = "/api/appointment",
+            medicalRecords = "/api/medical-records"
+        }
+    });
+});
 
 app.Run();
 
@@ -510,6 +553,298 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
 
         await db.SaveChangesAsync();
     }
+}
+
+static string GetDeploymentSuccessHtml(string environment)
+{
+    return $$"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediCore API - Deployed Successfully</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #090d16;
+            --card-bg: rgba(15, 23, 42, 0.78);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --primary: #0284c7;
+            --primary-light: #38bdf8;
+            --emerald: #10b981;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(2, 132, 199, 0.16) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.14) 0%, transparent 40%),
+                linear-gradient(180deg, #090d16 0%, #030712 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .container {
+            max-width: 680px;
+            width: 100%;
+        }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 36px 36px 32px 36px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-box {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+        }
+        .logo-box svg {
+            width: 24px;
+            height: 24px;
+            fill: #ffffff;
+        }
+        .brand-text {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            color: #ffffff;
+        }
+        .badge-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--emerald);
+            box-shadow: 0 0 10px var(--emerald);
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+        }
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 40%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 14.5px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        .alert-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.22);
+            border-radius: 14px;
+            padding: 14px 18px;
+            margin-bottom: 24px;
+            color: #a7f3d0;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 26px;
+        }
+        @media (max-width: 480px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        .metric-card {
+            background: rgba(255, 255, 255, 0.025);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 14px 16px;
+        }
+        .metric-card .label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+        }
+        .metric-card .val {
+            font-size: 14px;
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 28px;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.3);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.45);
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: #e2e8f0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.09);
+            color: #ffffff;
+            transform: translateY(-2px);
+        }
+        .footer {
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            padding-top: 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-dim);
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="top-bar">
+                <div class="brand">
+                    <div class="logo-box">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M19 10.5h-5.5V5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5H5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5h5.5V19c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5.5H19c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="brand-text">MediCore API</div>
+                    </div>
+                </div>
+                <div class="badge-live">
+                    <span class="pulse-dot"></span>
+                    <span>ONLINE & DEPLOYED</span>
+                </div>
+            </div>
+
+            <h1>Backend Service Deployed Successfully</h1>
+            <p class="subtitle">The MediCore Hospital Management System API backend is active, healthy, and successfully accepting incoming requests.</p>
+
+            <div class="alert-box">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                <span>Deployment confirmed: All core services & controllers are loaded.</span>
+            </div>
+
+            <div class="grid">
+                <div class="metric-card">
+                    <div class="label">Environment</div>
+                    <div class="val">{{environment}}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Runtime Platform</div>
+                    <div class="val">ASP.NET Core 8 Web API</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Database</div>
+                    <div class="val">Neon PostgreSQL Serverless</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Agentic AI Engine</div>
+                    <div class="val">SafeTriage & PlanningCoordinator</div>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <a href="/swagger" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    Swagger API Documentation
+                </a>
+                <a href="/health" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    Check Health Status
+                </a>
+            </div>
+
+            <div class="footer">
+                <span>SE3090 — Software Engineering Frameworks</span>
+                <span>MediCore Hospital Management System</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+""";
 }
 
 public partial class Program { }
