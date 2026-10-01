@@ -156,33 +156,70 @@ namespace HospitalManagementSystem.Api.Services
                 }
             }
 
-            if (!_isConfigured) return null;
+            if (_isConfigured)
+            {
+                try
+                {
+                    string objectKey = fileUrl;
+                    if (Uri.TryCreate(fileUrl, UriKind.Absolute, out var uri))
+                    {
+                        objectKey = uri.AbsolutePath.TrimStart('/');
+                    }
 
+                    using var client = CreateS3Client();
+                    var getRequest = new GetObjectRequest
+                    {
+                        BucketName = _bucketName,
+                        Key = objectKey
+                    };
+
+                    using var response = await client.GetObjectAsync(getRequest, cancellationToken);
+                    using var ms = new MemoryStream();
+                    await response.ResponseStream.CopyToAsync(ms, cancellationToken);
+                    return ms.ToArray();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to download file from Cloudflare R2 bucket: {FileUrl}, attempting HTTP fallback", fileUrl);
+                }
+            }
+
+            // Fallback 1: Download from public HTTP/HTTPS URL
+            if (fileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                fileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                    return await httpClient.GetByteArrayAsync(fileUrl, cancellationToken);
+                }
+                catch (Exception httpEx)
+                {
+                    _logger.LogWarning(httpEx, "Failed to download file via HTTP fallback from {FileUrl}", fileUrl);
+                }
+            }
+
+            // Fallback 2: Check local disk storage (e.g. wwwroot or relative path)
             try
             {
-                string objectKey = fileUrl;
-                if (Uri.TryCreate(fileUrl, UriKind.Absolute, out var uri))
+                var cleanRel = fileUrl.TrimStart('/');
+                var candidatePaths = new[]
                 {
-                    objectKey = uri.AbsolutePath.TrimStart('/');
-                }
-
-                using var client = CreateS3Client();
-                var getRequest = new GetObjectRequest
-                {
-                    BucketName = _bucketName,
-                    Key = objectKey
+                    Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", cleanRel),
+                    Path.Combine(AppContext.BaseDirectory, "wwwroot", cleanRel),
+                    Path.Combine(Directory.GetCurrentDirectory(), cleanRel)
                 };
+                foreach (var path in candidatePaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        return await File.ReadAllBytesAsync(path, cancellationToken);
+                    }
+                }
+            }
+            catch { }
 
-                using var response = await client.GetObjectAsync(getRequest, cancellationToken);
-                using var ms = new MemoryStream();
-                await response.ResponseStream.CopyToAsync(ms, cancellationToken);
-                return ms.ToArray();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to download file from Cloudflare R2: {FileUrl}", fileUrl);
-                return null;
-            }
+            return null;
         }
 
         public async Task<bool> DeleteAsync(string fileUrl, CancellationToken cancellationToken = default)

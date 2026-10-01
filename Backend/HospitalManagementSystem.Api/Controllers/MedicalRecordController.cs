@@ -632,26 +632,64 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         // GET /api/medicalrecord/{id}/attachments/{attachmentId}/download
+        // GET /api/medicalrecord/attachments/{attachmentId}/download
         [HttpGet("{id:int}/attachments/{attachmentId:int}/download")]
+        [HttpGet("attachments/{attachmentId:int}/download")]
         [AllowAnonymous]
-        public async Task<IActionResult> DownloadAttachment(int id, int attachmentId)
+        public async Task<IActionResult> DownloadAttachment(int? id, int attachmentId)
         {
-            var record = await _service.GetRecordByIdAsync(id);
-            if (record == null)
-                return NotFound(new { message = $"Medical record #{id} was not found." });
+            var attachment = await _db.MedicalRecordAttachments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.AttachmentId == attachmentId && (!id.HasValue || a.MedicalRecordId == id.Value));
 
-            var attachment = record.Attachments?.Find(a => a.AttachmentId == attachmentId);
             if (attachment == null)
                 return NotFound(new { message = $"Attachment #{attachmentId} was not found." });
 
-            // Redirect directly to the Cloudflare R2 / remote CDN URL
-            if (attachment.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                attachment.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            var bytes = await _fileStorageService.DownloadBytesAsync(attachment.FileUrl);
+            if (bytes == null || bytes.Length == 0)
             {
-                return Redirect(attachment.FileUrl);
+                if (attachment.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    attachment.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                        bytes = await httpClient.GetByteArrayAsync(attachment.FileUrl);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to download attachment bytes for URL {Url}", attachment.FileUrl);
+                    }
+                }
             }
 
-            return NotFound(new { message = "Attachment file not found." });
+            if (bytes == null || bytes.Length == 0)
+            {
+                // Fallback redirect if bytes could not be retrieved
+                if (attachment.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    attachment.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Redirect(attachment.FileUrl);
+                }
+                return NotFound(new { message = "Attachment file content could not be found." });
+            }
+
+            var cleanName = CleanFileName(attachment.FileName);
+            var contentType = string.IsNullOrWhiteSpace(attachment.FileType) ? "application/octet-stream" : attachment.FileType;
+
+            // Stream file directly with clean filename - forces browser to download without redirecting to a new tab
+            return File(bytes, contentType, cleanName);
+        }
+
+        private static string CleanFileName(string? fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return "medical_document.pdf";
+            var name = Path.GetFileName(fileName);
+            // Strip 32-hex character GUID prefix (e.g. 4a883a2db80e49518002aaf6c5304caf_name.pdf)
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"^[a-fA-F0-9]{32}_", "");
+            // Strip 36-char GUID with hyphens (e.g. 4a883a2d-b80e-4951-8002-aaf6c5304caf_name.pdf)
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"^[a-fA-F0-9\-]{36}_", "");
+            return string.IsNullOrWhiteSpace(name) ? "medical_document.pdf" : name;
         }
     }
 }

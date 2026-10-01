@@ -22,6 +22,15 @@ import Modal from '../../../components/Modal'
 import Button from '../../../components/Button'
 import Badge from '../../../components/Badge'
 
+export const getCleanFileName = (fileName) => {
+  if (!fileName) return 'medical_document.pdf'
+  // Remove 32-hex GUID prefix (e.g. 4a883a2db80e49518002aaf6c5304caf_name.pdf)
+  // or 36-char GUID with hyphens (e.g. 4a883a2d-b80e-4951-8002-aaf6c5304caf_name.pdf)
+  return fileName
+    .replace(/^[a-fA-F0-9]{32}_/, '')
+    .replace(/^[a-fA-F0-9-]{36}_/, '')
+}
+
 export const getFullAttachmentUrl = (fileUrl) => {
   if (!fileUrl) return ''
   if (
@@ -77,43 +86,87 @@ export default function MedicalRecordDetailModal({
 
   const handleDownloadAttachment = async (att) => {
     if (!att) return
+    const cleanName = getCleanFileName(att.fileName)
+
     const cachedDataUrl =
       typeof window !== 'undefined' ? sessionStorage.getItem(`med_preview_${att.fileName}`) : null
-    const effectiveUrl = cachedDataUrl || getFullAttachmentUrl(att.fileUrl)
+
+    // 1. If in-memory or sessionStorage data URL exists, download immediately
+    if (cachedDataUrl || att.fileUrl?.startsWith('data:') || att.fileUrl?.startsWith('blob:')) {
+      const href = cachedDataUrl || att.fileUrl
+      const a = document.createElement('a')
+      a.href = href
+      a.download = cleanName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      return
+    }
+
+    // 2. Stream through backend API endpoint (handles CORS and sets clean Content-Disposition)
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+    const cleanApiBase = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase
+    const recordId = record?.medicalRecordId
+    const backendDownloadUrl =
+      att.attachmentId && recordId
+        ? `${cleanApiBase}/medicalrecord/${recordId}/attachments/${att.attachmentId}/download`
+        : att.attachmentId
+        ? `${cleanApiBase}/medicalrecord/attachments/${att.attachmentId}/download`
+        : getFullAttachmentUrl(att.fileUrl)
 
     try {
-      if (effectiveUrl.startsWith('data:') || effectiveUrl.startsWith('blob:')) {
-        const a = document.createElement('a')
-        a.href = effectiveUrl
-        a.download = att.fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        return
-      }
+      const token =
+        typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.getItem === 'function'
+          ? window.localStorage.getItem('token')
+          : null
+      const response = await fetch(backendDownloadUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
 
-      const response = await fetch(effectiveUrl)
       if (response.ok) {
         const blob = await response.blob()
         const blobUrl = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = blobUrl
-        a.download = att.fileName
+        a.download = cleanName
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000)
         return
-      } else {
-        console.warn(`Server responded with HTTP ${response.status} when downloading ${att.fileName}`)
-        alert(`Attachment "${att.fileName}" could not be downloaded from the server (HTTP ${response.status}).`)
+      }
+    } catch (err) {
+      console.warn('Backend proxy download failed, attempting direct fetch:', err)
+    }
+
+    // 3. Fallback: Direct fetch into blob
+    try {
+      const directUrl = getFullAttachmentUrl(att.fileUrl)
+      const directResp = await fetch(directUrl)
+      if (directResp.ok) {
+        const blob = await directResp.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = cleanName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000)
         return
       }
     } catch (err) {
       console.warn('Direct blob fetch failed:', err)
-      // If direct fetch had a CORS or network error, open in a new tab rather than navigating the current window
-      window.open(effectiveUrl, '_blank')
     }
+
+    // 4. Final Fallback: Direct download trigger without target="_blank"
+    const fallbackUrl = getFullAttachmentUrl(att.fileUrl)
+    const a = document.createElement('a')
+    a.href = fallbackUrl
+    a.download = cleanName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   return (
@@ -358,14 +411,14 @@ export default function MedicalRecordDetailModal({
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            {att.fileName}
+                            {getCleanFileName(att.fileName)}
                           </div>
                           <div
                             className="mr-attachment-item__meta"
                             style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}
                           >
                             <span style={{ textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.3px' }}>
-                              {att.fileName.split('.').pop() || 'FILE'}
+                              {getCleanFileName(att.fileName).split('.').pop() || 'FILE'}
                             </span>{' '}
                             • {formatFileSize(att.fileSize)} •{' '}
                             {new Date(att.uploadedAt || Date.now()).toLocaleDateString()}
@@ -446,7 +499,7 @@ export default function MedicalRecordDetailModal({
                 <FileSpreadsheet size={20} color="var(--clr-primary)" />
               )}
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {previewAttachment.fileName}
+                {getCleanFileName(previewAttachment.fileName)}
               </span>
             </div>
           }
