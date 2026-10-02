@@ -25,6 +25,8 @@ import Button from '../../../components/Button'
 
 const RECORD_TYPES = ['Consultation', 'LabReport', 'DischargeSummary', 'Prescription', 'GeneralNote']
 const STATUSES = ['Finalized', 'Draft', 'Archived']
+const DEFAULT_PATIENTS = []
+const DEFAULT_DOCTORS = []
 
 export default function MedicalRecordFormModal({
   open,
@@ -32,8 +34,8 @@ export default function MedicalRecordFormModal({
   onClose,
   onSubmit,
   initialData = null,
-  patients = [],
-  doctors = [],
+  patients = DEFAULT_PATIENTS,
+  doctors = DEFAULT_DOCTORS,
   currentDoctorId = null,
   loading = false,
 }) {
@@ -475,7 +477,7 @@ export default function MedicalRecordFormModal({
       closeOnOverlayClick={false}
       closeOnEscape={false}
     >
-      <form onSubmit={handleSubmit} className="patient-form mr-form-styled" id="medical-record-form">
+      <form onSubmit={handleSubmit} className="patient-form mr-form-styled" id="medical-record-form" noValidate>
         {validationError && (
           <div className="patient-form__error" role="alert">
             {validationError}

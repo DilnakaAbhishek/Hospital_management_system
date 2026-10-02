@@ -8,7 +8,7 @@
 
 ## 👥 Group Component Breakdown
 
-1. **Member 1 (You)**: Patient Management with SafeTriage Agent
+1. **Member 1**: Patient Management with SafeTriage Agent
 2. **Member 2**: Doctor Management with Planning Agent
 3. **Member 3**: Appointment Management with Appointment Agent
 4. **Member 4**: Medical Report Management with Medical Report Agent

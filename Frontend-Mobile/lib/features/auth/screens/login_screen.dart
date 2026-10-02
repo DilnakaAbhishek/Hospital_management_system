@@ -128,94 +128,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
 
-
-  void _showForgotPasswordModal() {
-    final resetEmailController =
-        TextEditingController(text: _emailController.text);
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Row(
-                children: [
-                  Icon(Icons.lock_reset_rounded,
-                      color: AppColors.primary, size: 28),
-                  SizedBox(width: 12),
-                  Text(
-                    'Reset Your Password',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Enter your registered email address below and we will send instructions to securely reset your account password.',
-                style: TextStyle(
-                    color: AppColors.textSecondaryLight,
-                    fontSize: 13,
-                    height: 1.4),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: resetEmailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Registered Email',
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                            'Password reset link sent to ${resetEmailController.text.trim()}'),
-                        backgroundColor: AppColors.success,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  },
-                  child: const Text('Send Reset Link'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -393,7 +305,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 10),
 
-                        // Remember Me & Forgot Password
+                        // Remember Me
                         Row(
                           children: [
                             SizedBox(
@@ -411,27 +323,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                'Remember me',
-                                style: TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: GestureDetector(
-                                onTap: _showForgotPasswordModal,
-                                child: const Text(
-                                  'Forgot Password?',
-                                  textAlign: TextAlign.end,
-                                  style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                            const Text(
+                              'Remember me',
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w500),
                             ),
                           ],
                         ),

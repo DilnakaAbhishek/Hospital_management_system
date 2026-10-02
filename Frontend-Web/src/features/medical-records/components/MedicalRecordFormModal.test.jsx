@@ -1,10 +1,29 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MedicalRecordFormModal from './MedicalRecordFormModal'
 
 describe('MedicalRecordFormModal', () => {
-  afterEach(cleanup)
+  beforeEach(() => {
+    vi.stubGlobal(
+      'FileReader',
+      class MockFileReader {
+        readAsDataURL(file) {
+          setTimeout(() => {
+            this.result = `data:${file.type || 'application/pdf'};base64,JVBERi0xLjQgZHVtbXk=`
+            if (typeof this.onload === 'function') {
+              this.onload({ target: { result: this.result } })
+            }
+          }, 0)
+        }
+      }
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    cleanup()
+  })
 
   const samplePatients = [
     { patientId: 4, fullName: 'Amal Perera', nic: '199012345678', phoneNumber: '0771234567' },
