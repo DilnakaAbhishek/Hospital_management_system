@@ -1105,16 +1105,20 @@ class ApiService {
       }
     } catch (_) {}
 
-    if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
-      final fullUrl = fallbackUrl.startsWith('http')
-          ? fallbackUrl
-          : '${baseUrl.replaceAll('/api', '')}${fallbackUrl.startsWith('/') ? '' : '/'}$fallbackUrl';
-      final response = await http.get(Uri.parse(fullUrl));
-      if (response.statusCode >= 200 && response.statusCode < 300 && response.bodyBytes.isNotEmpty) {
-        return response.bodyBytes;
-      }
+    // On native platforms (Android / iOS), dart:io can fetch from the public storage URL directly without CORS issues.
+    // On Web, browsers block third-party origin fetch without CORS, so we skip direct fetch on Web.
+    if (!kIsWeb && fallbackUrl != null && fallbackUrl.isNotEmpty) {
+      try {
+        final fullUrl = fallbackUrl.startsWith('http')
+            ? fallbackUrl
+            : '${baseUrl.replaceAll('/api', '')}${fallbackUrl.startsWith('/') ? '' : '/'}$fallbackUrl';
+        final response = await http.get(Uri.parse(fullUrl));
+        if (response.statusCode >= 200 && response.statusCode < 300 && response.bodyBytes.isNotEmpty) {
+          return response.bodyBytes;
+        }
+      } catch (_) {}
     }
 
-    throw Exception('Failed to download attachment content');
+    throw Exception('Failed to download attachment content. Please check server connectivity.');
   }
 }

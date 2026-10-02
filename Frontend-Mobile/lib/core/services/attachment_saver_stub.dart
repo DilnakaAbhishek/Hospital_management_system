@@ -2,7 +2,8 @@ import 'dart:typed_data';
 import 'attachment_save_result.dart';
 
 Future<AttachmentSaveResult> saveAttachment({
-  required Uint8List bytes,
+  Uint8List? bytes,
+  String? downloadUrl,
   required String fileName,
   required bool isImage,
   String? mimeType,

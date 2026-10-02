@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -249,18 +250,31 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
     );
 
     try {
-      final bytes = await ApiService.downloadAttachmentBytes(
-        att.attachmentId,
-        recordId: _record.medicalRecordId,
-        fallbackUrl: att.fileUrl,
-      );
+      final backendDownloadUrl =
+          '${ApiService.baseUrl}/medicalrecord/${_record.medicalRecordId}/attachments/${att.attachmentId}/download';
 
-      final result = await saveAttachment(
-        bytes: bytes,
-        fileName: displayName,
-        isImage: isImg,
-        mimeType: att.fileType,
-      );
+      AttachmentSaveResult result;
+      if (kIsWeb) {
+        result = await saveAttachment(
+          downloadUrl: backendDownloadUrl,
+          fileName: displayName,
+          isImage: isImg,
+          mimeType: att.fileType,
+        );
+      } else {
+        final bytes = await ApiService.downloadAttachmentBytes(
+          att.attachmentId,
+          recordId: _record.medicalRecordId,
+          fallbackUrl: att.fileUrl,
+        );
+
+        result = await saveAttachment(
+          bytes: bytes,
+          fileName: displayName,
+          isImage: isImg,
+          mimeType: att.fileType,
+        );
+      }
 
       if (!mounted) return;
 

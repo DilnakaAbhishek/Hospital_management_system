@@ -156,6 +156,26 @@ namespace HospitalManagementSystem.Api.Services
                 }
             }
 
+            // Tier 1: Download from public HTTP/HTTPS URL directly (fastest, ~0.4s via CDN edge cache)
+            if (fileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                fileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    var bytes = await httpClient.GetByteArrayAsync(fileUrl, cancellationToken);
+                    if (bytes != null && bytes.Length > 0)
+                    {
+                        return bytes;
+                    }
+                }
+                catch (Exception httpEx)
+                {
+                    _logger.LogWarning(httpEx, "Fast HTTP download failed for {FileUrl}, attempting S3 API fallback", fileUrl);
+                }
+            }
+
+            // Tier 2: Cloudflare R2 S3 API client
             if (_isConfigured)
             {
                 try
@@ -180,22 +200,7 @@ namespace HospitalManagementSystem.Api.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to download file from Cloudflare R2 bucket: {FileUrl}, attempting HTTP fallback", fileUrl);
-                }
-            }
-
-            // Fallback 1: Download from public HTTP/HTTPS URL
-            if (fileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                fileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                    return await httpClient.GetByteArrayAsync(fileUrl, cancellationToken);
-                }
-                catch (Exception httpEx)
-                {
-                    _logger.LogWarning(httpEx, "Failed to download file via HTTP fallback from {FileUrl}", fileUrl);
+                    _logger.LogWarning(ex, "Failed to download file from Cloudflare R2 bucket: {FileUrl}", fileUrl);
                 }
             }
 
