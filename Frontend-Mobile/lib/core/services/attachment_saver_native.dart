@@ -1,15 +1,36 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:gal/gal.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'attachment_save_result.dart';
 
 Future<AttachmentSaveResult> saveAttachment({
-  required Uint8List bytes,
+  Uint8List? bytes,
+  String? downloadUrl,
   required String fileName,
   required bool isImage,
   String? mimeType,
 }) async {
+  Uint8List? fileBytes = bytes;
+
+  if ((fileBytes == null || fileBytes.isEmpty) && downloadUrl != null && downloadUrl.isNotEmpty) {
+    try {
+      final response = await http.get(Uri.parse(downloadUrl));
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        fileBytes = response.bodyBytes;
+      }
+    } catch (_) {}
+  }
+
+  if (fileBytes == null || fileBytes.isEmpty) {
+    return const AttachmentSaveResult(
+      success: false,
+      type: AttachmentSaveType.downloadedFile,
+      message: 'Could not obtain attachment data to save.',
+    );
+  }
+
   if (isImage) {
     try {
       final hasAccess = await Gal.hasAccess();
@@ -26,7 +47,7 @@ Future<AttachmentSaveResult> saveAttachment({
 
       final tempDir = await getTemporaryDirectory();
       final tempFile = File('${tempDir.path}/$fileName');
-      await tempFile.writeAsBytes(bytes);
+      await tempFile.writeAsBytes(fileBytes);
 
       await Gal.putImage(tempFile.path, album: 'MediCore');
       try {
@@ -61,7 +82,7 @@ Future<AttachmentSaveResult> saveAttachment({
       }
 
       final targetFile = File('${targetDir.path}/$fileName');
-      await targetFile.writeAsBytes(bytes);
+      await targetFile.writeAsBytes(fileBytes);
 
       return AttachmentSaveResult(
         success: true,
