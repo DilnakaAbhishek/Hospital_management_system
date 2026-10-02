@@ -12,13 +12,12 @@ import 'package:medicore_mobile/models/triage_workflow.dart';
 import 'package:medicore_mobile/models/hospital_assistant.dart';
 
 class ApiService {
-  // Android emulators use 10.0.2.2 to reach the development machine.
-  // For a physical device, replace this with your computer's LAN IP address.
-  static final String baseUrl = kIsWeb
-      ? 'http://localhost:5000/api'
-      : defaultTargetPlatform == TargetPlatform.android
-          ? 'http://10.0.2.2:5000/api'
-          : 'http://localhost:5000/api';
+  // Default to live Azure backend for mobile APK and deployment.
+  // Can be overridden via --dart-define=API_URL=... for local development.
+  static final String baseUrl = const String.fromEnvironment(
+    'API_URL',
+    defaultValue: 'https://medicore-api-eed4gnc2cnckgjf3.indiasouthcentral-01.azurewebsites.net/api',
+  );
 
   static http.Client _client = http.Client();
 
