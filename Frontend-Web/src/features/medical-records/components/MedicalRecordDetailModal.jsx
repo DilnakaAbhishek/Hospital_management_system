@@ -142,7 +142,8 @@ export default function MedicalRecordDetailModal({
         typeof window !== "undefined" &&
         window.localStorage &&
         typeof window.localStorage.getItem === "function"
-          ? (window.localStorage.getItem("hms_token") || window.localStorage.getItem("token"))
+          ? window.localStorage.getItem("hms_token") ||
+            window.localStorage.getItem("token")
           : null;
       const response = await fetch(backendDownloadUrl, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
