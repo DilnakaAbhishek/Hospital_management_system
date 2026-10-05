@@ -87,10 +87,21 @@ export default function PatientListPage() {
       await deletePatient(deleteTarget.patientId)
       setDeleteTarget(null)
     } catch (err) {
+      const serverMsg = err.response?.data?.message
+      const serverTitle = err.response?.data?.title
+      const serverDetail = err.response?.data?.detail
+
+      let displayMsg = serverMsg
+      if (!displayMsg && serverTitle && !serverTitle.toLowerCase().includes('unexpected error')) {
+        displayMsg = serverTitle
+      }
+      if (!displayMsg && serverDetail && !serverDetail.toLowerCase().includes('could not be processed')) {
+        displayMsg = serverDetail
+      }
+
       setDeleteError(
-        err.response?.data?.message ||
-        err.response?.data?.title ||
-        'Unable to delete patient. The patient may have existing records or appointments.'
+        displayMsg ||
+        'Cannot delete patient because they have existing appointments, medical records, or linked clinical data.'
       )
     } finally {
       setDeleting(false)

@@ -92,6 +92,7 @@ namespace HospitalManagementSystem.Api.Repositories
             var hasTriageWorkflows = await _context.TriageWorkflows.AnyAsync(t => t.PatientId == patientId);
             var hasProposals = await _context.AppointmentProposals.AnyAsync(p => p.PatientId == patientId);
             var hasAssessments = await _context.PatientCareAssessments.AnyAsync(a => a.PatientId == patientId);
+            var hasAssistantConversations = await _context.AssistantConversations.AnyAsync(c => c.PatientId == patientId);
 
             var dependencies = new List<string>();
             if (hasAppointments) dependencies.Add("appointments");
@@ -99,6 +100,7 @@ namespace HospitalManagementSystem.Api.Repositories
             if (hasTriageWorkflows) dependencies.Add("triage workflows");
             if (hasProposals) dependencies.Add("appointment proposals");
             if (hasAssessments) dependencies.Add("care assessments");
+            if (hasAssistantConversations) dependencies.Add("assistant conversations");
 
             if (dependencies.Count > 0)
             {
