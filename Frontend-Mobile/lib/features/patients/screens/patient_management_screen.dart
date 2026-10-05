@@ -74,10 +74,15 @@ class _PatientManagementScreenState extends State<PatientManagementScreen> {
     try {
       await ApiService.deletePatient(patient.patientId);
       await _loadPatients();
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
+        final message = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not delete the patient.')));
+          SnackBar(
+            content: Text(message),
+            backgroundColor: AppColors.danger,
+          ),
+        );
       }
     }
   }
@@ -324,9 +329,33 @@ class _PatientEditorState extends State<_PatientEditor> {
                       child: Column(children: [
                         _field('First name', required: true),
                         _field('Last name', required: true),
-                        _field('NIC', required: true),
-                        _field('Phone',
-                            required: true, type: TextInputType.phone),
+                        _field(
+                          'NIC',
+                          required: true,
+                          hint: 'e.g. 199012345678 (12 digits)',
+                          validator: (v) {
+                            final val = v?.trim() ?? '';
+                            if (val.isEmpty) return 'NIC is required';
+                            if (!RegExp(r'^\d{12}$').hasMatch(val)) {
+                              return 'NIC must be a 12-digit number';
+                            }
+                            return null;
+                          },
+                        ),
+                        _field(
+                          'Phone',
+                          required: true,
+                          type: TextInputType.phone,
+                          hint: 'e.g. 0771234567 (10 digits)',
+                          validator: (v) {
+                            final val = v?.trim() ?? '';
+                            if (val.isEmpty) return 'Phone is required';
+                            if (!RegExp(r'^\d{10}$').hasMatch(val)) {
+                              return 'Phone number must be a 10-digit number';
+                            }
+                            return null;
+                          },
+                        ),
                         _field('Email', type: TextInputType.emailAddress),
                         _field('Address'),
                         ListTile(
@@ -368,8 +397,19 @@ class _PatientEditorState extends State<_PatientEditor> {
                                   (v) => setState(() => _bloodGroup = v!)))
                         ]),
                         _field('Emergency contact name'),
-                        _field('Emergency contact phone',
-                            type: TextInputType.phone),
+                        _field(
+                          'Emergency contact phone',
+                          type: TextInputType.phone,
+                          hint: 'e.g. 0711234567 (10 digits)',
+                          validator: (v) {
+                            final val = v?.trim() ?? '';
+                            if (val.isNotEmpty &&
+                                !RegExp(r'^\d{10}$').hasMatch(val)) {
+                              return 'Emergency contact phone must be a 10-digit number';
+                            }
+                            return null;
+                          },
+                        ),
                         const SizedBox(height: 20),
                         SizedBox(
                             width: double.infinity,
@@ -387,18 +427,26 @@ class _PatientEditorState extends State<_PatientEditor> {
           ),
         ),
       );
-  Widget _field(String key, {bool required = false, TextInputType? type}) =>
+  Widget _field(String key,
+          {bool required = false,
+          TextInputType? type,
+          String? hint,
+          String? Function(String?)? validator}) =>
       Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: TextFormField(
               controller: _fields[key],
               keyboardType: type,
-              decoration: InputDecoration(labelText: key),
-              validator: required
-                  ? (value) => value == null || value.trim().isEmpty
-                      ? '$key is required'
-                      : null
-                  : null));
+              decoration: InputDecoration(
+                labelText: key,
+                hintText: hint,
+              ),
+              validator: validator ??
+                  (required
+                      ? (value) => value == null || value.trim().isEmpty
+                          ? '$key is required'
+                          : null
+                      : null)));
   Widget _dropdown(String label, String value, List<String> items,
           ValueChanged<String?> change) =>
       DropdownButtonFormField<String>(

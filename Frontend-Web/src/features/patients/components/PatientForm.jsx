@@ -45,12 +45,23 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading,
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    const message = validatePatientForm(form)
+    const trimmedForm = {
+      ...form,
+      firstName: form.firstName?.trim() || '',
+      lastName: form.lastName?.trim() || '',
+      nic: form.nic?.trim() || '',
+      phoneNumber: form.phoneNumber?.trim() || '',
+      email: form.email?.trim() || '',
+      address: form.address?.trim() || '',
+      emergencyContactName: form.emergencyContactName?.trim() || '',
+      emergencyContactPhone: form.emergencyContactPhone?.trim() || '',
+    }
+    const message = validatePatientForm(trimmedForm)
     if (message) {
       setValidationError(message)
       return
     }
-    onSubmit(form)
+    onSubmit(trimmedForm)
   }
 
   const isEdit = Boolean(patient)
@@ -77,7 +88,7 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading,
             <Field label="Last Name" name="lastName" value={form.lastName} onChange={handleChange} required />
             <Field label="Date of Birth" name="dateOfBirth" type="date" value={form.dateOfBirth} onChange={handleChange} required />
             <SelectField label="Gender" name="gender" value={form.gender} onChange={handleChange} options={GENDERS} />
-            <Field label="NIC Number" name="nic" value={form.nic} onChange={handleChange} placeholder="e.g. 980123456V" required />
+            <Field label="NIC Number" name="nic" value={form.nic} onChange={handleChange} placeholder="e.g. 199012345678 (12 digits)" required />
             <SelectField label="Blood Group" name="bloodGroup" value={form.bloodGroup} onChange={handleChange} options={BLOOD_GROUPS} />
           </div>
         </div>
@@ -85,7 +96,7 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading,
         <div className="form-section">
           <h5 className="form-section__title">Contact Information</h5>
           <div className="form-grid form-grid--2">
-            <Field label="Phone Number" name="phoneNumber" value={form.phoneNumber} onChange={handleChange} placeholder="+94 77 123 4567" required />
+            <Field label="Phone Number" name="phoneNumber" value={form.phoneNumber} onChange={handleChange} placeholder="e.g. 0771234567 (10 digits)" required />
             <Field label="Email Address" name="email" type="email" value={form.email} onChange={handleChange} placeholder="patient@email.com" required />
             <div className="form-grid__span-2">
               <Field label="Address" name="address" value={form.address} onChange={handleChange} placeholder="Street, City" required />
@@ -97,7 +108,7 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading,
           <h5 className="form-section__title">Emergency Contact</h5>
           <div className="form-grid form-grid--2">
             <Field label="Contact Name" name="emergencyContactName" value={form.emergencyContactName} onChange={handleChange} required />
-            <Field label="Contact Phone" name="emergencyContactPhone" value={form.emergencyContactPhone} onChange={handleChange} placeholder="+94 71 123 4567" required />
+            <Field label="Contact Phone" name="emergencyContactPhone" value={form.emergencyContactPhone} onChange={handleChange} placeholder="e.g. 0711234567 (10 digits)" required />
           </div>
         </div>
 
@@ -114,7 +125,7 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading,
   )
 }
 
-function validatePatientForm(form) {
+export function validatePatientForm(form) {
   const requiredFields = [
     ['firstName', 'First name'], ['lastName', 'Last name'], ['dateOfBirth', 'Date of birth'],
     ['nic', 'NIC number'], ['phoneNumber', 'Phone number'], ['email', 'Email address'],
@@ -125,10 +136,17 @@ function validatePatientForm(form) {
   const missing = requiredFields.find(([field]) => !form[field]?.trim())
   if (missing) return `${missing[1]} is required.`
   if (new Date(form.dateOfBirth) > new Date()) return 'Date of birth cannot be in the future.'
-  if (!/^\S+@\S+\.\S+$/.test(form.email)) return 'Enter a valid email address.'
-  if (form.nic.trim().length < 6) return 'Enter a valid NIC number.'
-  if (form.phoneNumber.replace(/\D/g, '').length < 9) return 'Enter a valid phone number.'
-  if (form.emergencyContactPhone.replace(/\D/g, '').length < 9) return 'Enter a valid emergency contact phone number.'
+  if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return 'Enter a valid email address.'
+
+  const nicValue = form.nic.trim()
+  if (!/^\d{12}$/.test(nicValue)) return 'NIC must be a 12-digit number.'
+
+  const phoneValue = form.phoneNumber.trim()
+  if (!/^\d{10}$/.test(phoneValue)) return 'Phone number must be a 10-digit number.'
+
+  const emergencyPhoneValue = form.emergencyContactPhone.trim()
+  if (!/^\d{10}$/.test(emergencyPhoneValue)) return 'Emergency contact phone must be a 10-digit number.'
+
   return null
 }
 

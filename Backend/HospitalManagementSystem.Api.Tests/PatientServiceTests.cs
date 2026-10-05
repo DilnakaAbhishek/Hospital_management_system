@@ -92,6 +92,55 @@ public class PatientServiceTests
         Assert.Equal("Confirmed", result.Status);
     }
 
+    [Fact]
+    public async Task DeletePatientAsync_DeletesPatient_WhenNoRelatedRecordsExist()
+    {
+        var repository = new FakePatientRepository { Patients = [Patient(id: 1)] };
+        var service = new PatientService(repository);
+
+        var result = await service.DeletePatientAsync(1);
+
+        Assert.True(result);
+        Assert.Empty(repository.Patients);
+    }
+
+    [Fact]
+    public async Task DeletePatientAsync_ReturnsFalse_WhenPatientDoesNotExist()
+    {
+        var repository = new FakePatientRepository();
+        var service = new PatientService(repository);
+
+        var result = await service.DeletePatientAsync(999);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task DeletePatientAsync_ThrowsInvalidOperationException_WhenPatientHasAppointments()
+    {
+        var repository = new FakePatientRepository { Patients = [Patient(id: 1)] };
+        repository.Appointments = [new Appointment { AppointmentId = 1, PatientId = 1 }];
+        var service = new PatientService(repository);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeletePatientAsync(1));
+
+        Assert.Contains("appointments", exception.Message);
+        Assert.Single(repository.Patients);
+    }
+
+    [Fact]
+    public async Task DeletePatientAsync_ThrowsInvalidOperationException_WhenPatientHasMedicalRecords()
+    {
+        var repository = new FakePatientRepository { Patients = [Patient(id: 1)] };
+        repository.MedicalRecords = [new MedicalRecord { MedicalRecordId = 1, PatientId = 1 }];
+        var service = new PatientService(repository);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeletePatientAsync(1));
+
+        Assert.Contains("medical records", exception.Message);
+        Assert.Single(repository.Patients);
+    }
+
     private static CreatePatientDto CreateDto(string email = "amal@example.com") => new()
     {
         FirstName = "Amal", LastName = "Perera", DateOfBirth = new DateTime(1985, 3, 14),
@@ -111,6 +160,7 @@ internal sealed class FakePatientRepository : IPatientRepository
 {
     public List<Patient> Patients { get; set; } = [];
     public List<Appointment> Appointments { get; set; } = [];
+    public List<MedicalRecord> MedicalRecords { get; set; } = [];
     public string? LastSearch { get; private set; }
     public string? LastGender { get; private set; }
     public string? LastBloodGroup { get; private set; }
@@ -135,6 +185,17 @@ internal sealed class FakePatientRepository : IPatientRepository
     public Task<Patient> CreateAsync(Patient patient) { patient.PatientId = Patients.Count + 1; Patients.Add(patient); return Task.FromResult(patient); }
     public Task<Patient> UpdateAsync(Patient patient) { patient.UpdatedAt = DateTime.UtcNow; return Task.FromResult(patient); }
     public Task DeleteAsync(Patient patient) { Patients.Remove(patient); return Task.CompletedTask; }
+    public Task<string?> GetDeletionBlockReasonAsync(int patientId)
+    {
+        var hasAppointments = Appointments.Any(a => a.PatientId == patientId);
+        var hasMedicalRecords = MedicalRecords.Any(m => m.PatientId == patientId);
+        var reasons = new List<string>();
+        if (hasAppointments) reasons.Add("appointments");
+        if (hasMedicalRecords) reasons.Add("medical records");
+        if (reasons.Count > 0)
+            return Task.FromResult<string?>($"Cannot delete patient because they have existing {string.Join(", ", reasons)}.");
+        return Task.FromResult<string?>(null);
+    }
     public Task<bool> ExistsByEmailAsync(string email, int? excludeId = null) => Task.FromResult(Patients.Any(patient => patient.Email == email && patient.PatientId != excludeId));
     public Task<bool> ExistsByNICAsync(string nic, int? excludeId = null) => Task.FromResult(Patients.Any(patient => patient.NIC == nic && patient.PatientId != excludeId));
 }

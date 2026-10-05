@@ -469,14 +469,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: const InputDecoration(
               labelText: 'National Identity Card (NIC) *',
               prefixIcon: Icon(Icons.badge_outlined),
-              hintText: 'e.g. 199512345678 or 951234567V',
+              hintText: 'e.g. 199012345678 (12 digits)',
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
             ),
             validator: (v) {
               final nic = v?.trim() ?? '';
               if (nic.isEmpty) return 'Please enter your NIC number';
-              if (nic.length < 9) return 'Enter a valid NIC format';
+              if (!RegExp(r'^\d{12}$').hasMatch(nic)) {
+                return 'NIC must be a 12-digit number';
+              }
               return null;
             },
           ),
@@ -497,29 +499,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 children: [
                   const Icon(Icons.calendar_month_outlined, color: AppColors.primary, size: 20),
                   const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Date of Birth *',
-                        style: TextStyle(fontSize: 10, color: AppColors.textSecondaryLight),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _dateOfBirth != null
-                            ? DateFormat('MMMM dd, yyyy').format(_dateOfBirth!)
-                            : 'Select Date of Birth',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: _dateOfBirth != null
-                              ? (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight)
-                              : AppColors.textSecondaryLight,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Date of Birth *',
+                          style: TextStyle(fontSize: 10, color: AppColors.textSecondaryLight),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          _dateOfBirth != null
+                              ? DateFormat('MMMM dd, yyyy').format(_dateOfBirth!)
+                              : 'Select Date of Birth',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _dateOfBirth != null
+                                ? (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight)
+                                : AppColors.textSecondaryLight,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const Spacer(),
                   const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondaryLight, size: 20),
                 ],
               ),
@@ -570,12 +573,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
             children: [
               const Icon(Icons.contact_mail_outlined, color: AppColors.primary, size: 21),
               const SizedBox(width: 8),
-              Text(
-                'Contact & Medical Profile',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              Expanded(
+                child: Text(
+                  'Contact & Medical Profile',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                  ),
                 ),
               ),
             ],
@@ -595,12 +600,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: const InputDecoration(
               labelText: 'Phone Number *',
               prefixIcon: Icon(Icons.phone_outlined),
-              hintText: '+94 77 123 4567',
+              hintText: 'e.g. 0771234567 (10 digits)',
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
             ),
             validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Please enter Phone Number';
+              final phone = v?.trim() ?? '';
+              if (phone.isEmpty) return 'Please enter Phone Number';
+              if (!RegExp(r'^\d{10}$').hasMatch(phone)) {
+                return 'Phone number must be a 10-digit number';
+              }
               return null;
             },
           ),

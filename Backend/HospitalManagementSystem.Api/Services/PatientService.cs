@@ -125,6 +125,12 @@ namespace HospitalManagementSystem.Api.Services
             var patient = await _repository.GetByIdAsync(id);
             if (patient is null) return false;
 
+            var blockReason = await _repository.GetDeletionBlockReasonAsync(id);
+            if (!string.IsNullOrEmpty(blockReason))
+            {
+                throw new InvalidOperationException(blockReason);
+            }
+
             await _repository.DeleteAsync(patient);
             return true;
         }

@@ -85,6 +85,29 @@ namespace HospitalManagementSystem.Api.Repositories
             await _context.SaveChangesAsync();
         }
 
+        public async Task<string?> GetDeletionBlockReasonAsync(int patientId)
+        {
+            var hasAppointments = await _context.Appointments.AnyAsync(a => a.PatientId == patientId);
+            var hasMedicalRecords = await _context.MedicalRecords.AnyAsync(m => m.PatientId == patientId);
+            var hasTriageWorkflows = await _context.TriageWorkflows.AnyAsync(t => t.PatientId == patientId);
+            var hasProposals = await _context.AppointmentProposals.AnyAsync(p => p.PatientId == patientId);
+            var hasAssessments = await _context.PatientCareAssessments.AnyAsync(a => a.PatientId == patientId);
+
+            var dependencies = new List<string>();
+            if (hasAppointments) dependencies.Add("appointments");
+            if (hasMedicalRecords) dependencies.Add("medical records");
+            if (hasTriageWorkflows) dependencies.Add("triage workflows");
+            if (hasProposals) dependencies.Add("appointment proposals");
+            if (hasAssessments) dependencies.Add("care assessments");
+
+            if (dependencies.Count > 0)
+            {
+                return $"Cannot delete patient because they have existing {string.Join(", ", dependencies)}.";
+            }
+
+            return null;
+        }
+
         public async Task<bool> ExistsByEmailAsync(string email, int? excludeId = null) =>
             await _context.Patients.AnyAsync(p => p.Email == email && p.PatientId != excludeId);
 

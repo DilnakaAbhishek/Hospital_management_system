@@ -359,7 +359,7 @@ class ApiService {
     );
 
     if (response.statusCode != 204) {
-      throw Exception('Unable to delete patient.');
+      throw Exception(_errorMessage(response.body));
     }
   }
 

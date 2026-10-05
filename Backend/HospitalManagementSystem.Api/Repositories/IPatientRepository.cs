@@ -14,6 +14,7 @@ namespace HospitalManagementSystem.Api.Repositories
         Task<Patient> CreateAsync(Patient patient);
         Task<Patient> UpdateAsync(Patient patient);
         Task DeleteAsync(Patient patient);
+        Task<string?> GetDeletionBlockReasonAsync(int patientId);
         Task<bool> ExistsByEmailAsync(string email, int? excludeId = null);
         Task<bool> ExistsByNICAsync(string nic, int? excludeId = null);
     }

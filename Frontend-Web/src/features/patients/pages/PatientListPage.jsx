@@ -27,6 +27,7 @@ export default function PatientListPage() {
   const [editPatient, setEditPatient] = useState(null)
   const [formError, setFormError] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteError, setDeleteError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -68,12 +69,29 @@ export default function PatientListPage() {
     }
   }
 
+  const handleOpenDelete = (p) => {
+    setDeleteTarget(p)
+    setDeleteError(null)
+  }
+
+  const handleCloseDelete = () => {
+    setDeleteTarget(null)
+    setDeleteError(null)
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     setDeleting(true)
+    setDeleteError(null)
     try {
       await deletePatient(deleteTarget.patientId)
       setDeleteTarget(null)
+    } catch (err) {
+      setDeleteError(
+        err.response?.data?.message ||
+        err.response?.data?.title ||
+        'Unable to delete patient. The patient may have existing records or appointments.'
+      )
     } finally {
       setDeleting(false)
     }
@@ -123,7 +141,7 @@ export default function PatientListPage() {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" size="sm" icon={Eye} onClick={() => navigate(`/patients/${p.patientId}`)} id={`table-view-${p.patientId}`}>View</Button>
           <Button variant="primary" size="sm" onClick={() => handleOpenEdit(p)} id={`table-edit-${p.patientId}`}>Edit</Button>
-          <Button variant="danger" size="sm" onClick={() => setDeleteTarget(p)} id={`table-delete-${p.patientId}`}>Delete</Button>
+          <Button variant="danger" size="sm" onClick={() => handleOpenDelete(p)} id={`table-delete-${p.patientId}`}>Delete</Button>
         </div>
       ),
     },
@@ -248,7 +266,7 @@ export default function PatientListPage() {
                     key={p.patientId}
                     patient={p}
                     onEdit={handleOpenEdit}
-                    onDelete={setDeleteTarget}
+                    onDelete={handleOpenDelete}
                     onView={patient => navigate(`/patients/${patient.patientId}`)}
                   />
                 ))
@@ -304,7 +322,7 @@ export default function PatientListPage() {
 
       <Modal
         open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={handleCloseDelete}
         title="Delete Patient"
         subtitle="This action cannot be undone"
         size="sm"
@@ -319,13 +337,21 @@ export default function PatientListPage() {
             <strong>{deleteTarget?.firstName} {deleteTarget?.lastName}</strong>?
             All their records will be permanently removed.
           </p>
+          {deleteError && (
+            <div className="delete-confirm__error" role="alert">
+              <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+              <span>{deleteError}</span>
+            </div>
+          )}
           <div className="delete-confirm__actions">
-            <Button variant="secondary" onClick={() => setDeleteTarget(null)} id="cancel-delete">
-              Cancel
+            <Button variant="secondary" onClick={handleCloseDelete} id="cancel-delete">
+              {deleteError ? 'Close' : 'Cancel'}
             </Button>
-            <Button variant="danger" onClick={handleDelete} loading={deleting} id="confirm-delete">
-              Delete Patient
-            </Button>
+            {!deleteError && (
+              <Button variant="danger" onClick={handleDelete} loading={deleting} id="confirm-delete">
+                Delete Patient
+              </Button>
+            )}
           </div>
         </div>
       </Modal>
