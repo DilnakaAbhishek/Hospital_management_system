@@ -139,7 +139,7 @@ export default function PatientForm({
               name="nic"
               value={form.nic}
               onChange={handleChange}
-              placeholder="1234567890"
+              placeholder="e.g. 199012345678 (12 digits)"
               required
             />
             <SelectField
