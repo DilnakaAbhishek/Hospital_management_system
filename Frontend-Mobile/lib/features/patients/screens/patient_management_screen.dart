@@ -76,13 +76,7 @@ class _PatientManagementScreenState extends State<PatientManagementScreen> {
       await _loadPatients();
     } catch (e) {
       if (mounted) {
-        var message = e.toString().replaceFirst('Exception: ', '').trim();
-        if (message.isEmpty ||
-            message.toLowerCase().contains('unexpected error') ||
-            message.toLowerCase().contains('could not be processed') ||
-            message.contains('500')) {
-          message = 'Cannot delete patient because they have existing appointments, medical records, or clinical data.';
-        }
+        final message = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
